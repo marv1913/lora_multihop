@@ -83,8 +83,20 @@ def create_header_obj_from_raw_message(raw_message):
         elif flag == RouteErrorHeader.HEADER_TYPE:
             broken_node = header_as_list[3]
             check_addr_field(broken_node, 'broken node')
-
             return RouteErrorHeader(received_from, source, ttl, broken_node)
+        elif flag == RegistrationHeader.HEADER_TYPE:
+            subscribe = header_as_list[3]
+            if subscribe == 'true':
+                subscribe = True
+            elif subscribe == 'false':
+                subscribe = False
+            else:
+                raise ValueError(f'invalid value for subscribe parameter: {subscribe}')
+            peer_id = header_as_list[4]
+            if len(peer_id) == 0:
+                raise ValueError(f'invalid value for subscribe parameter: {subscribe}')
+            return RegistrationHeader(source, ttl, subscribe, peer_id)
+
         raise ValueError("flag '{}' is not a valid flag".format(flag))
     except IndexError:
         raise ValueError("header has an unexpected length")
@@ -226,6 +238,20 @@ class MessageAcknowledgeHeader(Header):
 
     def get_header_str(self):
         return create_header_str(str(self.source), str(self.flag), str(self.ttl), self.destination, self.ack_id)
+
+
+class RegistrationHeader(Header):
+    HEADER_TYPE = 6
+
+    def __init__(self, source, ttl, subscribe, peer_id):
+        super().__init__(None, source, self.HEADER_TYPE, ttl)
+        self.flag = self.HEADER_TYPE
+        self.ttl = ttl
+        self.peer_id = peer_id
+        self.subscribe = subscribe
+
+    def get_header_str(self):
+        return create_header_str(str(self.source), str(self.flag), str(self.ttl), self.subscribe, self.peer_id)
 
 
 def create_header_str(*args):

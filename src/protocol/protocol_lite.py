@@ -59,6 +59,8 @@ class ProtocolLite:
                             self.process_route_error_header(header_obj)
                         elif header_obj.flag == header.MessageAcknowledgeHeader.HEADER_TYPE:
                             self.process_ack_header(header_obj)
+                        elif header_obj.flag == header.RegistrationHeader.HEADER_TYPE:
+                            self.process_registration_header(header_obj)
 
                 except ValueError as e:
                     logging.warning(str(e))
@@ -229,6 +231,14 @@ class ProtocolLite:
             self.send_header(header_obj.get_header_str())
         else:
             logging.debug(f'do not forward ack message, because end node was my address')
+
+    def process_registration_header(self, header_obj):
+        header_obj.ttl -= 1
+        if self.routing_table.check_registration_message_already_processed(header_obj.source):
+            logging.debug('registration message already has been processed')
+        else:
+            # self.
+            logging.debug('forward registration message')
 
     def send_route_error(self, end_node):
         route_error_header_obj = header.RouteErrorHeader(None, variables.MY_ADDRESS, 9,

@@ -12,6 +12,8 @@ class RoutingTable:
         self.routing_table = []
         self.unsupported_devices = []
         self.processed_route_requests = []
+        self.processed_registration_messages = []
+        self.available_peers = []
 
     def add_routing_table_entry(self, destination, next_node, hops):
         new_routing_table_entry = {'destination': destination, 'next_node': next_node, 'hops': hops}
@@ -66,11 +68,24 @@ class RoutingTable:
                 best_routes.append(best_route)
         return best_routes
 
+    def add_peer(self, peer_id, address):
+        if self.check_entry_for_peer_exists(peer_id, address):
+            logging.debug('entry already exists')
+        else:
+            self.available_peers.append({'peer_id': peer_id, 'address': address})
+
+    def check_entry_for_peer_exists(self, peer_id, address):
+        for entry in self.available_peers:
+            if entry['peer_id'] == peer_id and entry['address'] == address:
+                return True
+        return False
+
     def add_address_to_processed_requests_list(self, address):
-        for address_dict in self.processed_route_requests:
-            if address_dict['address'] == address:
-                return
-        self.processed_route_requests.append({'address': address, 'time': time.time()})
+        self.processed_route_requests = add_address_to_processed_list(address, self.processed_route_requests)
+
+    def add_address_to_processed_registration_messages_list(self, address):
+        self.processed_registration_messages = add_address_to_processed_list(address,
+                                                                             self.processed_registration_messages)
 
     def delete_all_entries_of_destination(self, destination):
         new_list = []
@@ -79,17 +94,34 @@ class RoutingTable:
                 new_list.append(entry)
         self.routing_table = new_list
 
-    def __clean_already_processed_requests_list(self):
-        current_time = time.time()
-        cleaned_list = []
-        for address_dict in self.processed_route_requests:
-            if current_time - address_dict['time'] < variables.PROCESSED_ROUTE_REQUEST_TIMEOUT:
-                cleaned_list.append(address_dict)
-        self.processed_route_requests = cleaned_list
-
     def check_route_request_already_processed(self, address):
-        self.__clean_already_processed_requests_list()
-        for address_dict in self.processed_route_requests:
-            if address_dict['address'] == address:
-                return True
-        return False
+        return check_message_already_processed(address, self.processed_route_requests)
+
+    def check_registration_message_already_processed(self, address):
+        return check_message_already_processed(address, self.processed_registration_messages)
+
+
+def add_address_to_processed_list(address, processed_list):
+    for address_dict in processed_list:
+        if address_dict['address'] == address:
+            return
+    processed_list.append({'address': address, 'time': time.time()})
+    return processed_list
+
+
+def clean_already_processed_requests_list(processed_list):
+    current_time = time.time()
+    cleaned_list = []
+    for address_dict in processed_list:
+        if current_time - address_dict['time'] < variables.PROCESSED_ROUTE_REQUEST_TIMEOUT:
+            cleaned_list.append(address_dict)
+    processed_list = cleaned_list
+    return processed_list
+
+
+def check_message_already_processed(address, processed_list):
+    processed_list = clean_already_processed_requests_list(processed_list)
+    for address_dict in processed_list:
+        if address_dict['address'] == address:
+            return True
+    return False

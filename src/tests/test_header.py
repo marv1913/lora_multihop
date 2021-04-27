@@ -92,3 +92,24 @@ class HeaderTest(unittest.TestCase):
         self.assertEqual(route_error_header_obj.ttl, 4)
         self.assertEqual(route_error_header_obj.broken_node, '0132')
         self.assertEqual(route_error_header_obj.flag, header.RouteErrorHeader.HEADER_TYPE)
+
+    def test_create_registration_header_from_message_str_good(self):
+        registration_header_obj = header.create_header_obj_from_raw_message('LR,0131,10,|0131|6|4|true|test|')
+
+        self.assertEqual('0131', registration_header_obj.source)
+        self.assertEqual(6, registration_header_obj.flag)
+        self.assertEqual(4, registration_header_obj.ttl)
+        self.assertEqual(True, registration_header_obj.subscribe)
+        self.assertEqual('test', registration_header_obj.peer_id)
+
+    def test_create_registration_header_from_message_str_bad_invalid_value_for_subscribe_parameter(self):
+        self.assertRaises(ValueError, header.create_header_obj_from_raw_message, 'LR,0131,10,|0131|6|4|no|test|')
+
+    def test_create_registration_header_from_message_str_bad_empty_peer_id(self):
+        self.assertRaises(ValueError, header.create_header_obj_from_raw_message, 'LR,0131,10,|0131|6|4|true||')
+
+
+
+
+
+
