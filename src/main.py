@@ -1,11 +1,10 @@
 import logging
-import time
 
 import serial
 
+from ipc.java_ipc import JavaIPC
 from protocol import consumer_producer
 from protocol.protocol_lite import ProtocolLite
-from util import variables
 
 
 def reset_module():
@@ -32,10 +31,6 @@ if __name__ == '__main__':
 
     protocol = ProtocolLite()
 
-    variables.MY_ADDRESS = consumer_producer.get_current_address_from_module()
-    logging.info('loaded address of module: {}'.format(variables.MY_ADDRESS))
+    java_ipc = JavaIPC(protocol)
+    java_ipc.start_tcp_server()
 
-    protocol.start_protocol_thread()
-    # protocol.send_registration_message(True, 'test')
-
-    # TODO implement function to config lora module before launching UI and get own address from module

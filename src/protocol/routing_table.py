@@ -1,3 +1,4 @@
+import copy
 import logging
 import time
 
@@ -80,6 +81,9 @@ class RoutingTable:
             if entry['peer_id'] != peer_id and entry['address'] != address:
                 new_list.append(entry)
         self.available_peers = new_list
+
+    def get_peers(self):
+        return copy.deepcopy(self.available_peers)
 
     def check_entry_for_peer_exists(self, peer_id, address):
         for entry in self.available_peers:

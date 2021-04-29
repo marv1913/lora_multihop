@@ -7,7 +7,7 @@ import time
 from contextlib import contextmanager
 
 from protocol import consumer_producer
-from protocol.header import RouteReplyHeader, RegistrationHeader
+from protocol.header import RegistrationHeader
 from util import variables
 from protocol import header
 from messenger import view
@@ -250,12 +250,15 @@ class ProtocolLite:
                 self.send_header(header_obj.get_header_str())
 
     def send_registration_message(self, subscribe, peer_id):
+        if subscribe:
+            self.routing_table.add_peer(peer_id, variables.MY_ADDRESS)
+        else:
+            self.routing_table.delete_peer(peer_id, variables.MY_ADDRESS)
         self.send_header(
             RegistrationHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, subscribe, peer_id).get_header_str())
 
     def send_route_error(self, end_node):
-        route_error_header_obj = header.RouteErrorHeader(None, variables.MY_ADDRESS, 9,
-                                                         end_node)
+        route_error_header_obj = header.RouteErrorHeader(None, variables.MY_ADDRESS, 9, end_node)
         self.send_header(route_error_header_obj.get_header_str())
 
     def send_message_acknowledgement(self, source, destination, payload):
