@@ -74,6 +74,13 @@ class RoutingTable:
         else:
             self.available_peers.append({'peer_id': peer_id, 'address': address})
 
+    def delete_peer(self, peer_id, address):
+        new_list = []
+        for entry in self.available_peers:
+            if entry['peer_id'] != peer_id and entry['address'] != address:
+                new_list.append(entry)
+        self.available_peers = new_list
+
     def check_entry_for_peer_exists(self, peer_id, address):
         for entry in self.available_peers:
             if entry['peer_id'] == peer_id and entry['address'] == address:

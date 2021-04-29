@@ -3,9 +3,9 @@ import time
 
 import serial
 
-import protocol.consumer_producer
-from messenger import messenger
+from protocol import consumer_producer
 from protocol.protocol_lite import ProtocolLite
+from util import variables
 
 
 def reset_module():
@@ -28,13 +28,14 @@ if __name__ == '__main__':
     ser = serial.serial_for_url('/dev/ttyS0', baudrate=115200, timeout=20)
     # module_conf = ModuleConfig(consumer_producer.ser)
     # module_conf.config_module()
-    protocol.consumer_producer.start_send_receive_threads(ser)
+    consumer_producer.start_send_receive_threads(ser)
 
     protocol = ProtocolLite()
 
-    messenger = messenger.Messenger(protocol)
-    time.sleep(2)
+    variables.MY_ADDRESS = consumer_producer.get_current_address_from_module()
+    logging.info('loaded address of module: {}'.format(variables.MY_ADDRESS))
 
-    messenger.start_chatting()
+    protocol.start_protocol_thread()
+    # protocol.send_registration_message(True, 'test')
 
     # TODO implement function to config lora module before launching UI and get own address from module

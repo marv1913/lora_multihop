@@ -7,7 +7,7 @@ import time
 from contextlib import contextmanager
 
 from protocol import consumer_producer
-from protocol.header import RouteReplyHeader
+from protocol.header import RouteReplyHeader, RegistrationHeader
 from util import variables
 from protocol import header
 from messenger import view
@@ -201,7 +201,8 @@ class ProtocolLite:
                 self.routing_table.add_routing_table_entry(header_obj.source, header_obj.received_from,
                                                            header_obj.hops + 1)
                 # forward message
-                header_obj.next_node = self.routing_table.get_best_route_for_destination(header_obj.end_node)['next_node']
+                header_obj.next_node = self.routing_table.get_best_route_for_destination(header_obj.end_node)[
+                    'next_node']
                 header_obj.hops = header_obj.hops + 1
                 header_obj.ttl = header_obj.ttl - 1
                 self.send_header(header_obj.get_header_str())
@@ -233,12 +234,24 @@ class ProtocolLite:
             logging.debug(f'do not forward ack message, because end node was my address')
 
     def process_registration_header(self, header_obj):
-        header_obj.ttl -= 1
-        if self.routing_table.check_registration_message_already_processed(header_obj.source):
-            logging.debug('registration message already has been processed')
-        else:
-            # self.
-            logging.debug('forward registration message')
+        if header_obj.source != variables.MY_ADDRESS:
+            header_obj.ttl -= 1
+            if self.routing_table.check_registration_message_already_processed(header_obj.source):
+                logging.debug('registration message already has been processed')
+            else:
+                self.routing_table.add_address_to_processed_registration_messages_list(header_obj.source)
+                if header_obj.subscribe:
+                    logging.debug('registered new peer')
+                    self.routing_table.add_peer(header_obj.peer_id, header_obj.source)
+                else:
+                    logging.debug('unregistered peer')
+                    self.routing_table.delete_peer(header_obj.peer_id, header_obj.source)
+                logging.debug('forward registration message')
+                self.send_header(header_obj.get_header_str())
+
+    def send_registration_message(self, subscribe, peer_id):
+        self.send_header(
+            RegistrationHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, subscribe, peer_id).get_header_str())
 
     def send_route_error(self, end_node):
         route_error_header_obj = header.RouteErrorHeader(None, variables.MY_ADDRESS, 9,

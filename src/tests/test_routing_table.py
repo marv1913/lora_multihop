@@ -2,6 +2,10 @@ import unittest
 
 __author__ = "Marvin Rausch"
 
+import time
+
+from unittest.mock import patch
+
 from protocol.routing_table import RoutingTable
 
 
@@ -31,7 +35,31 @@ class RoutingTableTest(unittest.TestCase):
         self.routing_table.add_address_to_processed_registration_messages_list('0131')
         self.assertTrue(self.routing_table.check_registration_message_already_processed('0131'))
 
-    def test_route_request_already_processed_good2(self):
+    def test_registration_message_already_processed_good2(self):
         self.routing_table.add_address_to_processed_registration_messages_list('0131')
         self.assertFalse(self.routing_table.check_registration_message_already_processed('0132'))
+
+    def test_registration_message_already_processed_good3(self):
+        with patch.object(time, 'time') as current_time_mocked:
+            current_time_mocked.side_effect = [1, 10]
+            self.routing_table.add_address_to_processed_registration_messages_list('0131')
+            self.assertFalse(self.routing_table.check_registration_message_already_processed('0131'))
+
+    def test_add_peer_good(self):
+        self.routing_table.add_peer('test', '0131')
+        self.assertEqual(1, len(self.routing_table.available_peers))
+
+    def test_add_peer_edge_same_entry_two_times(self):
+        self.routing_table.add_peer('test', '0131')
+        self.routing_table.add_peer('test', '0131')
+        self.assertEqual(1, len(self.routing_table.available_peers))
+
+    def test_delete_peer_good(self):
+        self.routing_table.add_peer('test', '0131')
+        self.routing_table.delete_peer('test', '0131')
+        self.assertEqual(0, len(self.routing_table.available_peers))
+
+    def test_delete_peer_not_existing(self):
+        self.routing_table.delete_peer('test', '0131')
+
 
