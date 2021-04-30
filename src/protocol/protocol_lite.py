@@ -4,6 +4,7 @@ import random
 import signal
 import threading
 import time
+from asyncio import Queue
 from contextlib import contextmanager
 
 from protocol import consumer_producer
@@ -25,6 +26,7 @@ class ProtocolLite:
     def __init__(self):
         logging.info('created protocol obj: {}'.format(str(self)))
         self.routing_table = RoutingTable()
+        self.connect_request_queue = Queue()
 
     def start_protocol_thread(self):
         receiving_thread = threading.Thread(target=self.process_incoming_message)
@@ -249,6 +251,21 @@ class ProtocolLite:
                 logging.debug('forward registration message')
                 self.send_header(header_obj.get_header_str())
 
+    def process_connect_request_header(self, header_obj):
+        # TODO make sure same request is not forwarded multiple times
+        if header_obj.received_from != variables.MY_ADDRESS:
+            if header_obj.next_node == variables.MY_ADDRESS:
+                # forward message
+                pass
+            elif header_obj.end_node == variables.MY_ADDRESS:
+                # add new ConnectRequest obj to ConnectRequestQueue
+                self.connect_request_queue.put(ConnectRequest(header_obj.target_peer_id, header_obj.source_peer_id))
+
+    def send_connect_request_header(self, source_peer_id, target_peer_id, timeout_in_sec):
+        # look for address of source peer id and check whether source peer is already registered
+        # wait until timeout for ConnectRequestHeader of other HubConnector
+        raise NotImplementedError
+
     def send_registration_message(self, subscribe, peer_id):
         if subscribe:
             self.routing_table.add_peer(peer_id, variables.MY_ADDRESS)
@@ -316,3 +333,9 @@ def wait_random_time():
 def calculate_ack_id(address, payload):
     hash_object = hashlib.md5(bytes(address + payload, variables.ENCODING))
     return hash_object.hexdigest()[:6]
+
+class ConnectRequest:
+
+    def __init__(self, source_peer_id, target_peer_id):
+        self.source_peer_id = source_peer_id
+        self.target_peer_id = target_peer_id

@@ -96,6 +96,13 @@ def create_header_obj_from_raw_message(raw_message):
             if len(peer_id) == 0:
                 raise ValueError(f'invalid value for subscribe parameter: {subscribe}')
             return RegistrationHeader(received_from, source, ttl, subscribe, peer_id)
+        elif flag == ConnectRequestHeader.HEADER_TYPE:
+            end_node = header_as_list[3]
+            check_addr_field(end_node, 'end_node')
+
+            next_node = header_as_list[4]
+            check_addr_field(next_node, 'end_node')
+            return ConnectRequestHeader(received_from, source, ttl, end_node, next_node)
 
         raise ValueError("flag '{}' is not a valid flag".format(flag))
     except IndexError:
@@ -256,6 +263,29 @@ class RegistrationHeader(Header):
         else:
             subscribe_str = 'false'
         return create_header_str(str(self.source), str(self.flag), str(self.ttl), subscribe_str, self.peer_id)
+
+
+class ConnectRequestHeader(Header):
+    HEADER_TYPE = 7
+
+    def __init__(self, received_from, source, ttl, end_node, next_node, source_peer_id, target_peer_id):
+        super().__init__(received_from, source, self.HEADER_TYPE, ttl)
+        self.end_node = end_node
+        self.next_node = next_node
+        self.source_peer_id = source_peer_id
+        self.target_peer_id = target_peer_id
+
+    def __str__(self):
+        """
+        to string method to make obj human readable for debugging purposes
+        :return:
+        """
+        return self.source + " " + self.flag + " " + str(self.ttl) + " " + self.end_node + " " + self.next_node + \
+               " " + self.source_peer_id + " " + self.target_peer_id
+
+    def get_header_str(self):
+        return create_header_str(self.source, str(self.flag), str(self.ttl), self.end_node, self.end_node,
+                                 self.source_peer_id, self.target_peer_id)
 
 
 def create_header_str(*args):
