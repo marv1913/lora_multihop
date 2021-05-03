@@ -91,6 +91,17 @@ class RoutingTable:
                 return True
         return False
 
+    def check_peer_is_already_registered(self, peer_id):
+        for entry in self.available_peers:
+            if entry['peer_id'] == peer_id:
+                return True
+        return False
+
+    def get_address_of_peer(self, peer_id):
+        for entry in self.available_peers:
+            if entry['peer_id'] == peer_id:
+                return entry['address']
+
     def add_address_to_processed_requests_list(self, address):
         self.processed_route_requests = add_address_to_processed_list(address, self.processed_route_requests)
 

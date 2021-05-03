@@ -58,6 +58,16 @@ class HeaderTest(unittest.TestCase):
         self.assertEqual(header_obj.payload, 'hello, good morning')
         self.assertEqual(header_obj.received_from, '0136')
 
+    def test_create_message_header_obj_edge_pipe_in_message(self):
+        header_obj = header.create_header_obj_from_raw_message('LR,0136,10,|0135|1|3|0138|0137|hello, good | morning|')
+        self.assertEqual(header_obj.source, '0135')
+        self.assertEqual(header_obj.destination, '0138')
+        self.assertEqual(header_obj.flag, 1)
+        self.assertEqual(header_obj.ttl, 3)
+        self.assertEqual(header_obj.next_node, '0137')
+        self.assertEqual(header_obj.payload, 'hello, good | morning')
+        self.assertEqual(header_obj.received_from, '0136')
+
     def test_create_message_header_obj_bad_payload_missing(self):
         self.assertRaises(ValueError, header.create_header_obj_from_raw_message, 'LR,0136,10,|0135|1|1|0138|0137|')
 

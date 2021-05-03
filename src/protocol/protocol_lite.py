@@ -1,14 +1,15 @@
+import asyncio
 import hashlib
 import logging
 import random
 import signal
 import threading
 import time
-from asyncio import Queue
+from queue import Queue
 from contextlib import contextmanager
 
 from protocol import consumer_producer
-from protocol.header import RegistrationHeader
+from protocol.header import RegistrationHeader, ConnectRequestHeader
 from util import variables
 from protocol import header
 from messenger import view
@@ -27,6 +28,7 @@ class ProtocolLite:
         logging.info('created protocol obj: {}'.format(str(self)))
         self.routing_table = RoutingTable()
         self.connect_request_queue = Queue()
+        self.connected_node = None
 
     def start_protocol_thread(self):
         receiving_thread = threading.Thread(target=self.process_incoming_message)
@@ -63,6 +65,8 @@ class ProtocolLite:
                             self.process_ack_header(header_obj)
                         elif header_obj.flag == header.RegistrationHeader.HEADER_TYPE:
                             self.process_registration_header(header_obj)
+                        elif header_obj.flag == header.ConnectRequestHeader.HEADER_TYPE:
+                            self.process_connect_request_header(header_obj)
 
                 except ValueError as e:
                     logging.warning(str(e))
@@ -254,17 +258,49 @@ class ProtocolLite:
     def process_connect_request_header(self, header_obj):
         # TODO make sure same request is not forwarded multiple times
         if header_obj.received_from != variables.MY_ADDRESS:
-            if header_obj.next_node == variables.MY_ADDRESS:
+            if header_obj.end_node == variables.MY_ADDRESS:
+                # add new ConnectRequest obj to ConnectRequestQueue
+                connect_request_tuple = (ConnectRequest(header_obj.target_peer_id, header_obj.source_peer_id),
+                                         time.time())
+                logging.debug('add entry to connect request queue')
+                self.connect_request_queue.put(connect_request_tuple)
+            elif header_obj.next_node == variables.MY_ADDRESS:
                 # forward message
                 pass
-            elif header_obj.end_node == variables.MY_ADDRESS:
-                # add new ConnectRequest obj to ConnectRequestQueue
-                self.connect_request_queue.put(ConnectRequest(header_obj.target_peer_id, header_obj.source_peer_id))
 
     def send_connect_request_header(self, source_peer_id, target_peer_id, timeout_in_sec):
         # look for address of source peer id and check whether source peer is already registered
         # wait until timeout for ConnectRequestHeader of other HubConnector
-        raise NotImplementedError
+        if not self.routing_table.check_peer_is_already_registered(source_peer_id):
+            raise ValueError(f"source peer '{source_peer_id}' is not registered")
+        elif not self.routing_table.check_peer_is_already_registered(target_peer_id):
+            raise ValueError(f"target peer '{target_peer_id}' is not registered")
+        elif self.routing_table.get_address_of_peer(source_peer_id) != variables.MY_ADDRESS:
+            # TODO is source_peer always registered on own instance?
+            raise ValueError('source peer is not registered on this node')
+        else:
+            end_node = self.routing_table.get_address_of_peer(target_peer_id)
+            self.send_header(ConnectRequestHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, end_node,
+                                                  self.routing_table.get_best_route_for_destination(end_node)[
+                                                      'next_node'], source_peer_id, target_peer_id).get_header_str())
+            with timeout(int(timeout_in_sec)):
+                try:
+                    while True:
+                        if not self.connect_request_queue.empty():
+                            # get element from queue and compare peer id's
+                            connect_request = self.connect_request_queue.get()
+                            if time.time() - connect_request[1] < float(timeout_in_sec):
+                                connect_request_obj = connect_request[0]
+                                if connect_request_obj.source_peer_id == source_peer_id \
+                                        and connect_request_obj.target_peer_id == target_peer_id:
+                                    logging.debug(f"connection to node '{end_node}' established")
+                                    self.connected_node = end_node
+                                    return True
+                        else:
+                            time.sleep(0.2)
+                except TimeoutError:
+                    logging.debug(f"could not establish connection to target peer '{target_peer_id}'")
+                    return False
 
     def send_registration_message(self, subscribe, peer_id):
         if subscribe:
@@ -333,6 +369,7 @@ def wait_random_time():
 def calculate_ack_id(address, payload):
     hash_object = hashlib.md5(bytes(address + payload, variables.ENCODING))
     return hash_object.hexdigest()[:6]
+
 
 class ConnectRequest:
 

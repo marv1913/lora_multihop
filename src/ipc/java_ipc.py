@@ -25,7 +25,7 @@ class JavaIPC:
                 conn, addr = s.accept()
                 while True:
                     data = conn.recv(1024)
-                    print(data)
+                    print(f'data: {data}')
                     if not data:
                         conn.close()
                         print('closed')
@@ -39,5 +39,13 @@ class JavaIPC:
                             registration_message_parameter = xml.parse_registration_message_from_xml(root)
                             self.protocol.send_registration_message(registration_message_parameter[0],
                                                                     registration_message_parameter[1])
+                        elif root.tag == 'connection_request':
+                            route_request_parameter = xml.parse_connect_request_from_xml(root)
+                            if self.protocol.send_connect_request_header(route_request_parameter[0],
+                                                                         route_request_parameter[1],
+                                                                         route_request_parameter[2]):
+                                logging.debug('ready for connection')
+                            else:
+                                logging.debug('sending error to java side')
         finally:
             s.close()

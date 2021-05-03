@@ -12,10 +12,8 @@ def get_available_peers_as_xml_str(available_peers):
         peer_id.text = peer_dict['peer_id']
         peer.append(peer_id)
         root.append(peer)
-
     # pretty string
     res = etree.tostring(root, pretty_print=True)
-    print(res)
     return res
 
 
@@ -34,6 +32,20 @@ def parse_registration_message_from_xml(xml_obj):
             else:
                 ValueError(f'unexpected value for registration parameter: {register}')
     return register, peer_id
+
+
+def parse_connect_request_from_xml(xml_obj):
+    source_peer_id = None
+    target_peer_id = None
+    timeout = 0
+    for element in xml_obj.iter("*"):
+        if element.tag == 'source_peer_id':
+            source_peer_id = element.text
+        elif element.tag == 'target_peer_id':
+            target_peer_id = element.text
+        elif element.tag == 'timeout':
+            timeout = element.text
+    return source_peer_id, target_peer_id, timeout
 
 
 def parse_xml(xml_as_bytes):

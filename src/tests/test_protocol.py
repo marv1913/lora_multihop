@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from protocol import protocol_lite, header
-from protocol.header import RegistrationHeader
+from protocol.header import RegistrationHeader, ConnectRequestHeader
 from util import variables
 
 
@@ -53,3 +53,8 @@ class ProtocolTest(unittest.TestCase):
             self.protocol.process_registration_header(registration_message_header_obj)
 
             self.assertEqual(0, send_header_mocked.call_count)
+
+    def test_process_connect_request_header_good(self):
+        variables.MY_ADDRESS = '0201'
+        connect_request_header_obj = ConnectRequestHeader('0200', '0200', 5, '0201', '0201', 'test1', 'test2')
+        self.protocol.process_connect_request_header(connect_request_header_obj)

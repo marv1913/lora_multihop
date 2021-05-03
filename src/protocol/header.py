@@ -17,6 +17,13 @@ class Header:
         self.ttl = int(ttl)
 
 
+def create_message_header_obj(received_from, header_str):
+    payload = header_str[20:len(header_str) - 1]
+    if len(payload) == 0:
+        raise ValueError('payload missing')
+    return MessageHeader(received_from, header_str[1:5], header_str[8:9], header_str[10:14], header_str[15:19],
+                         header_str[20:len(header_str) - 1])
+
 def create_header_obj_from_raw_message(raw_message):
     """
     creates a header object of appropriate header type from raw message
@@ -57,12 +64,7 @@ def create_header_obj_from_raw_message(raw_message):
             if flag == MessageAcknowledgeHeader.HEADER_TYPE:
                 return MessageAcknowledgeHeader(received_from, source, ttl, destination, header_as_list[4])
             else:
-                next_node = header_as_list[4]
-                check_addr_field(next_node, 'next_node')
-                payload = header_as_list[5]
-                if len(payload) == 0:
-                    raise ValueError('payload is empty!')
-                return MessageHeader(received_from, source, ttl, destination, next_node, payload)
+                return create_message_header_obj(received_from, header_str)
         elif flag == RouteRequestHeader.HEADER_TYPE or flag == RouteReplyHeader.HEADER_TYPE:
             # it is a route request or a route reply header
             hops = header_as_list[3]
@@ -102,7 +104,8 @@ def create_header_obj_from_raw_message(raw_message):
 
             next_node = header_as_list[4]
             check_addr_field(next_node, 'end_node')
-            return ConnectRequestHeader(received_from, source, ttl, end_node, next_node)
+            return ConnectRequestHeader(received_from, source, ttl, end_node, next_node, header_as_list[5],
+                                        header_as_list[6])
 
         raise ValueError("flag '{}' is not a valid flag".format(flag))
     except IndexError:
