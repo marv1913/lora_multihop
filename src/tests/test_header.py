@@ -39,7 +39,7 @@ class HeaderTest(unittest.TestCase):
         self.assertRaises(ValueError, header.create_header_obj_from_raw_message, 'LR,0136,10,|0137|8|8|3|0139|0140|')
 
     def test_create_message_header_obj_good(self):
-        header_obj = header.create_header_obj_from_raw_message('LR,0136,10,|0135|1|3|0138|0137|hello|')
+        header_obj = header.create_header_obj_from_raw_message('LR,0136,10,|0135|1|3|0138|0137|000001|hello|')
         self.assertEqual(header_obj.source, '0135')
         self.assertEqual(header_obj.destination, '0138')
         self.assertEqual(header_obj.flag, 1)
@@ -47,9 +47,11 @@ class HeaderTest(unittest.TestCase):
         self.assertEqual(header_obj.next_node, '0137')
         self.assertEqual(header_obj.payload, 'hello')
         self.assertEqual(header_obj.received_from, '0136')
+        self.assertEqual(header_obj.message_id, 1)
 
     def test_create_message_header_obj_edge_comma_in_message(self):
-        header_obj = header.create_header_obj_from_raw_message('LR,0136,10,|0135|1|3|0138|0137|hello, good morning|')
+        header_obj = header.create_header_obj_from_raw_message('LR,0136,10,|0135|1|3|0138|0137|000001|hello, '
+                                                               'good morning|')
         self.assertEqual(header_obj.source, '0135')
         self.assertEqual(header_obj.destination, '0138')
         self.assertEqual(header_obj.flag, 1)
@@ -57,9 +59,11 @@ class HeaderTest(unittest.TestCase):
         self.assertEqual(header_obj.next_node, '0137')
         self.assertEqual(header_obj.payload, 'hello, good morning')
         self.assertEqual(header_obj.received_from, '0136')
+        self.assertEqual(header_obj.message_id, 1)
 
     def test_create_message_header_obj_edge_pipe_in_message(self):
-        header_obj = header.create_header_obj_from_raw_message('LR,0136,10,|0135|1|3|0138|0137|hello, good | morning|')
+        header_obj = header.create_header_obj_from_raw_message('LR,0136,10,|0135|1|3|0138|0137|000010|hello, good | '
+                                                               'morning|')
         self.assertEqual(header_obj.source, '0135')
         self.assertEqual(header_obj.destination, '0138')
         self.assertEqual(header_obj.flag, 1)
@@ -67,6 +71,7 @@ class HeaderTest(unittest.TestCase):
         self.assertEqual(header_obj.next_node, '0137')
         self.assertEqual(header_obj.payload, 'hello, good | morning')
         self.assertEqual(header_obj.received_from, '0136')
+        self.assertEqual(header_obj.message_id, 10)
 
     def test_create_message_header_obj_bad_payload_missing(self):
         self.assertRaises(ValueError, header.create_header_obj_from_raw_message, 'LR,0136,10,|0135|1|1|0138|0137|')
@@ -83,12 +88,12 @@ class HeaderTest(unittest.TestCase):
         self.assertEqual('|0130|4|9|1|0132|0133|', route_reply_header_obj.get_header_str())
 
     def test_get_header_str_message_header_good(self):
-        message_header_obj = header.MessageHeader('0131', '0130', 9, '0133', '0132', 'hello')
-        self.assertEqual('|0130|1|9|0133|0132|hello|', message_header_obj.get_header_str())
+        message_header_obj = header.MessageHeader('0131', '0130', 9, '0133', '0132', 1, 'hello')
+        self.assertEqual('|0130|1|9|0133|0132|000001|hello|', message_header_obj.get_header_str())
 
     def test_get_header_str_ack_header_good(self):
         message_header_obj = header.MessageAcknowledgeHeader(received_from=None, ttl=9, source='0132',
-                                                             destination='0133', ack_id='example_hash')
+                                                             destination='0133', message_id='example_hash')
         self.assertEqual('|0132|2|9|0133|example_hash|', message_header_obj.get_header_str())
 
     def test_create_header_str_route_error_header_good(self):

@@ -22,7 +22,8 @@ def create_message_header_obj(received_from, header_str):
     if len(payload) == 0:
         raise ValueError('payload missing')
     return MessageHeader(received_from, header_str[1:5], header_str[8:9], header_str[10:14], header_str[15:19],
-                         header_str[20:len(header_str) - 1])
+                         header_str[20:26], header_str[27:len(header_str) - 1])
+
 
 def create_header_obj_from_raw_message(raw_message):
     """
@@ -105,7 +106,7 @@ def create_header_obj_from_raw_message(raw_message):
             next_node = header_as_list[4]
             check_addr_field(next_node, 'end_node')
             return ConnectRequestHeader(received_from, source, ttl, end_node, next_node, header_as_list[5],
-                                        header_as_list[6])
+                                        header_as_list[6], header_as_list[7])
 
         raise ValueError("flag '{}' is not a valid flag".format(flag))
     except IndexError:
@@ -213,15 +214,16 @@ class MessageHeader(Header):
     LENGTH = 14
     HEADER_TYPE = 1
 
-    def __init__(self, received_from, source, ttl, destination, next_node, payload):
+    def __init__(self, received_from, source, ttl, destination, next_node, message_id, payload):
         super().__init__(received_from, source, self.HEADER_TYPE, ttl)
         self.next_node = next_node
         self.payload = payload
         self.destination = destination
+        self.message_id = int(message_id)
 
     def get_header_str(self):
         return create_header_str(self.source, str(self.flag), str(self.ttl), self.destination, self.next_node,
-                                 self.payload)
+                                 f'{self.message_id:06d}', self.payload)
 
 
 class RouteErrorHeader(Header):
@@ -238,16 +240,16 @@ class RouteErrorHeader(Header):
 class MessageAcknowledgeHeader(Header):
     HEADER_TYPE = 2
 
-    def __init__(self, received_from, source, ttl, destination, ack_id):
+    def __init__(self, received_from, source, ttl, destination, message_id):
         super().__init__(received_from, source, self.HEADER_TYPE, ttl)
         self.flag = self.HEADER_TYPE
         self.received_from = received_from
         self.destination = destination
         self.ttl = ttl
-        self.ack_id = ack_id
+        self.message_id = message_id
 
     def get_header_str(self):
-        return create_header_str(str(self.source), str(self.flag), str(self.ttl), self.destination, self.ack_id)
+        return create_header_str(str(self.source), str(self.flag), str(self.ttl), self.destination, self.message_id)
 
 
 class RegistrationHeader(Header):
@@ -271,12 +273,13 @@ class RegistrationHeader(Header):
 class ConnectRequestHeader(Header):
     HEADER_TYPE = 7
 
-    def __init__(self, received_from, source, ttl, end_node, next_node, source_peer_id, target_peer_id):
+    def __init__(self, received_from, source, ttl, end_node, next_node, source_peer_id, target_peer_id, timeout):
         super().__init__(received_from, source, self.HEADER_TYPE, ttl)
         self.end_node = end_node
         self.next_node = next_node
         self.source_peer_id = source_peer_id
         self.target_peer_id = target_peer_id
+        self.timeout = timeout
 
     def __str__(self):
         """
@@ -284,11 +287,11 @@ class ConnectRequestHeader(Header):
         :return:
         """
         return self.source + " " + self.flag + " " + str(self.ttl) + " " + self.end_node + " " + self.next_node + \
-               " " + self.source_peer_id + " " + self.target_peer_id
+               " " + self.source_peer_id + " " + self.target_peer_id + " " + self.timeout
 
     def get_header_str(self):
         return create_header_str(self.source, str(self.flag), str(self.ttl), self.end_node, self.end_node,
-                                 self.source_peer_id, self.target_peer_id)
+                                 self.source_peer_id, self.target_peer_id, self.timeout)
 
 
 def create_header_str(*args):

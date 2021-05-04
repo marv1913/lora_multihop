@@ -15,6 +15,7 @@ class RoutingTable:
         self.processed_route_requests = []
         self.processed_registration_messages = []
         self.available_peers = []
+        self.received_messages = []
 
     def add_routing_table_entry(self, destination, next_node, hops):
         new_routing_table_entry = {'destination': destination, 'next_node': next_node, 'hops': hops}
@@ -25,6 +26,16 @@ class RoutingTable:
                 self.unsupported_devices.remove(destination)
         else:
             logging.debug('entry already exists: {}'.format(str(new_routing_table_entry)))
+
+    def add_received_message(self, source, message_id):
+        if not self.check_message_already_received(source, message_id):
+            self.received_messages.append({'source': source, 'message_id': message_id})
+
+    def check_message_already_received(self, source, message_id):
+        for entry in self.received_messages:
+            if entry['source'] == source and entry['message_id'] == message_id:
+                return True
+        return False
 
     def check_routing_table_entry_exists(self, destination, next_node, hops):
         for entry in self.routing_table:

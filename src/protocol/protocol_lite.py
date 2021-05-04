@@ -8,6 +8,7 @@ import time
 from queue import Queue
 from contextlib import contextmanager
 
+from ipc import xml
 from protocol import consumer_producer
 from protocol.header import RegistrationHeader, ConnectRequestHeader
 from util import variables
@@ -24,11 +25,16 @@ class ProtocolLite:
     PAUSE_PROCESSING_INCOMING_MESSAGES = False
     MESSAGES_ACKNOWLEDGMENT = []
 
-    def __init__(self):
+    def __init__(self, send_method):
         logging.info('created protocol obj: {}'.format(str(self)))
         self.routing_table = RoutingTable()
-        self.connect_request_queue = Queue()
+        self.received_messages_queue = Queue()
+        self.sending_messages_queue = Queue()
+
+        self.sending_queue = Queue()
+
         self.connected_node = None
+        self.send_to_java = send_method
 
     def start_protocol_thread(self):
         receiving_thread = threading.Thread(target=self.process_incoming_message)
@@ -144,14 +150,6 @@ class ProtocolLite:
                 logging.info('sending route reply message...')
                 self.send_route_reply(next_node=header_obj.received_from, end_node=header_obj.source)
             else:
-                # if len(self.routing_table.get_best_route_for_destination(header_obj.end_node)) > 0:
-                #     # send route reply
-                #     logging.debug(f'sending route reply to {header_obj.source} before route request is reaching '
-                #                   f'destination, because found route in routing table')
-                #     route = self.routing_table.get_best_route_for_destination(header_obj.end_node)
-                #     route_reply = RouteReplyHeader(None, header_obj.end_node, variables.DEFAULT_TTL, route['hops'],
-                #                                    header_obj.source, header_obj.received_from)
-                #     self.send_header(route_reply.get_header_str())
                 if len(self.routing_table.get_best_route_for_destination(header_obj.source)) == 0:
                     # if there is no entry for source of route request, you can add routing table entry
                     self.routing_table.add_routing_table_entry(header_obj.source, header_obj.received_from,
@@ -172,13 +170,17 @@ class ProtocolLite:
         self.send_header(route_reply_header_obj.get_header_str())
 
     def process_message_header(self, header_obj):
-        if header_obj.destination == variables.MY_ADDRESS:
-            view.display_received_message(header_obj)
-            # send acknowledge message
-            hash_value = calculate_ack_id(header_obj.source, header_obj.payload)
-            logging.debug('sending acknowledgement')
-            self.send_header(header.MessageAcknowledgeHeader(None, variables.MY_ADDRESS, variables.TTL_START_VALUE,
-                                                             header_obj.source, hash_value).get_header_str())
+        if header_obj.destination == variables.MY_ADDRESS and header_obj.source == self.connected_node:
+            ack_header_str = header.MessageAcknowledgeHeader(None, variables.MY_ADDRESS, variables.TTL_START_VALUE,
+                                                             header_obj.source, header_obj.message_id).get_header_str()
+            if self.routing_table.check_message_already_received(header_obj.source, header_obj.message_id):
+                self.send_header(ack_header_str)
+            else:
+                self.received_messages_queue.put(header_obj.payload)
+                # send acknowledge message
+                logging.debug('sending acknowledgement')
+                self.send_header(ack_header_str)
+
         elif header_obj.next_node == variables.MY_ADDRESS:
             best_route = self.routing_table.get_best_route_for_destination(header_obj.destination)
             if len(best_route) == 0:
@@ -259,14 +261,12 @@ class ProtocolLite:
         # TODO make sure same request is not forwarded multiple times
         if header_obj.received_from != variables.MY_ADDRESS:
             if header_obj.end_node == variables.MY_ADDRESS:
-                # add new ConnectRequest obj to ConnectRequestQueue
-                connect_request_tuple = (ConnectRequest(header_obj.target_peer_id, header_obj.source_peer_id),
-                                         time.time())
-                logging.debug('add entry to connect request queue')
-                self.connect_request_queue.put(connect_request_tuple)
+                # send connect request to java side
+                logging.debug("send connect request to java side")
+                self.sending_queue.put(xml.create_xml_from_connect_request_header(header_obj))
             elif header_obj.next_node == variables.MY_ADDRESS:
                 # forward message
-                pass
+                raise NotImplementedError()
 
     def send_connect_request_header(self, source_peer_id, target_peer_id, timeout_in_sec):
         # look for address of source peer id and check whether source peer is already registered
@@ -282,25 +282,26 @@ class ProtocolLite:
             end_node = self.routing_table.get_address_of_peer(target_peer_id)
             self.send_header(ConnectRequestHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, end_node,
                                                   self.routing_table.get_best_route_for_destination(end_node)[
-                                                      'next_node'], source_peer_id, target_peer_id).get_header_str())
-            with timeout(int(timeout_in_sec)):
-                try:
-                    while True:
-                        if not self.connect_request_queue.empty():
-                            # get element from queue and compare peer id's
-                            connect_request = self.connect_request_queue.get()
-                            if time.time() - connect_request[1] < float(timeout_in_sec):
-                                connect_request_obj = connect_request[0]
-                                if connect_request_obj.source_peer_id == source_peer_id \
-                                        and connect_request_obj.target_peer_id == target_peer_id:
-                                    logging.debug(f"connection to node '{end_node}' established")
-                                    self.connected_node = end_node
-                                    return True
-                        else:
-                            time.sleep(0.2)
-                except TimeoutError:
-                    logging.debug(f"could not establish connection to target peer '{target_peer_id}'")
-                    return False
+                                                      'next_node'], source_peer_id, target_peer_id,
+                                                  timeout_in_sec).get_header_str())
+            # with timeout(int(timeout_in_sec)):
+            #     try:
+            #         while True:
+            #             if not self.connect_request_queue.empty():
+            #                 # get element from queue and compare peer id's
+            #                 connect_request = self.connect_request_queue.get()
+            #                 if time.time() - connect_request[1] < float(timeout_in_sec):
+            #                     connect_request_obj = connect_request[0]
+            #                     if connect_request_obj.source_peer_id == source_peer_id \
+            #                             and connect_request_obj.target_peer_id == target_peer_id:
+            #                         logging.debug(f"connection to node '{end_node}' established")
+            #                         self.connected_node = end_node
+            #                         return True
+            #             else:
+            #                 time.sleep(0.2)
+            #     except TimeoutError:
+            #         logging.debug(f"could not establish connection to target peer '{target_peer_id}'")
+            #         return False
 
     def send_registration_message(self, subscribe, peer_id):
         if subscribe:

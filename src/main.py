@@ -29,8 +29,6 @@ if __name__ == '__main__':
     # module_conf.config_module()
     consumer_producer.start_send_receive_threads(ser)
 
-    protocol = ProtocolLite()
-
-    java_ipc = JavaIPC(protocol)
+    java_ipc = JavaIPC()
     java_ipc.start_tcp_server()
 

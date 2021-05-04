@@ -4,16 +4,16 @@ xml_bytes = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<regist
 
 
 def get_available_peers_as_xml_str(available_peers):
-    root = etree.Element('registered_peers')
+    root_element = etree.Element('registered_peers')
     # another child with text
     for peer_dict in available_peers:
         peer = etree.Element('peer')
         peer_id = etree.Element('peer_id')
         peer_id.text = peer_dict['peer_id']
         peer.append(peer_id)
-        root.append(peer)
+        root_element.append(peer)
     # pretty string
-    res = etree.tostring(root, pretty_print=True)
+    res = etree.tostring(root_element, pretty_print=True)
     return res
 
 
@@ -46,6 +46,26 @@ def parse_connect_request_from_xml(xml_obj):
         elif element.tag == 'timeout':
             timeout = element.text
     return source_peer_id, target_peer_id, timeout
+
+
+def create_xml_from_connect_request_header(header_obj):
+    root_element = etree.Element('connection_request')
+
+    source_peer_id = etree.Element('source_peer_id')
+    source_peer_id.text = header_obj.source_peer_id
+
+    target_peer_id = etree.Element('target_peer_id')
+    target_peer_id.text = header_obj.target_peer_id
+
+    timeout = etree.Element('timeout')
+    timeout.text = header_obj.timeout
+
+    root_element.append(source_peer_id)
+    root_element.append(target_peer_id)
+    root_element.append(timeout)
+
+    res = etree.tostring(root_element, pretty_print=True)
+    return res
 
 
 def parse_xml(xml_as_bytes):
