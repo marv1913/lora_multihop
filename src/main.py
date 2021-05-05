@@ -1,10 +1,12 @@
 import logging
+import time
 
 import serial
 
 from ipc.java_ipc import JavaIPC
 from protocol import consumer_producer
 from protocol.protocol_lite import ProtocolLite
+from util import module_config
 
 
 def reset_module():
@@ -25,9 +27,11 @@ if __name__ == '__main__':
     logging.getLogger().setLevel(logging.DEBUG)
 
     ser = serial.serial_for_url('/dev/ttyS0', baudrate=115200, timeout=20)
-    # module_conf = ModuleConfig(consumer_producer.ser)
-    # module_conf.config_module()
+
+    # module_config.config_module()
     consumer_producer.start_send_receive_threads(ser)
+    # time.sleep(1)
+    # module_config.set_address('0201')
 
     java_ipc = JavaIPC()
     java_ipc.start_tcp_server()

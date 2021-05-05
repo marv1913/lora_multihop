@@ -25,16 +25,15 @@ class ProtocolLite:
     PAUSE_PROCESSING_INCOMING_MESSAGES = False
     MESSAGES_ACKNOWLEDGMENT = []
 
-    def __init__(self, send_method):
+    def __init__(self):
         logging.info('created protocol obj: {}'.format(str(self)))
         self.routing_table = RoutingTable()
         self.received_messages_queue = Queue()
         self.sending_messages_queue = Queue()
-
         self.sending_queue = Queue()
 
         self.connected_node = None
-        self.send_to_java = send_method
+        self.message_counter = 0
 
     def start_protocol_thread(self):
         receiving_thread = threading.Thread(target=self.process_incoming_message)
@@ -83,42 +82,49 @@ class ProtocolLite:
                     except ValueError as e:
                         logging.warning(str(e))
 
-    def send_message(self, destination, payload):
-        best_route = self.routing_table.get_best_route_for_destination(destination)
-        if len(best_route) == 0:
-            logging.info(
-                'could not find a route to {}. Sending route request...'.format(destination))
-            if self.send_route_request_message(destination):
-                best_route = self.routing_table.get_best_route_for_destination(destination)
-            else:
+    def send_message(self, payload):
+        if self.connected_node is not None:
+            destination = self.connected_node
+            best_route = self.routing_table.get_best_route_for_destination(destination)
+            if len(best_route) == 0:
                 logging.info(
-                    'Got no answer on route requested.'.format(destination))
-                return
-        header_obj = header.MessageHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, destination,
-                                          best_route['next_node'], payload)
-        attempt = 0
-        ack_id = self.add_message_to_waiting_acknowledgement_list(header_obj)
-        message_confirmed = False
-        while attempt < 3 and not message_confirmed:
-            logging.debug(f'attempt: {attempt}')
-            self.send_header(header_obj.get_header_str())
-            with timeout(5):
-                try:
-                    while True:
-                        if ack_id not in self.MESSAGES_ACKNOWLEDGMENT:
-                            message_confirmed = True
-                            break
-                except TimeoutError:
-                    attempt = attempt + 1
-        if message_confirmed:
-            view.print_ack_text()
-        else:
-            logging.debug(f'message was not acknowledged by receiver. Current ack_list: {self.MESSAGES_ACKNOWLEDGMENT}'
-                          f'\nSending route error message')
-            self.routing_table.delete_all_entries_of_destination(destination)
-            self.delete_from_ack_list(ack_id)
-            self.send_header(header.RouteErrorHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL,
-                                                     header_obj.destination).get_header_str())
+                    'could not find a route to {}. Sending route request...'.format(destination))
+                if self.send_route_request_message(destination):
+                    best_route = self.routing_table.get_best_route_for_destination(destination)
+                else:
+                    logging.info('Got no answer on route requested.'.format(destination))
+                    return
+            self.message_counter += 1
+            header_obj = header.MessageHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, destination,
+                                              best_route['next_node'], self.message_counter, payload)
+            attempt = 0
+            self.add_message_to_waiting_acknowledgement_list(header_obj)
+            message_confirmed = False
+            while attempt < 3 and not message_confirmed:
+                logging.debug(f'attempt: {attempt}')
+                self.send_header(header_obj.get_header_str())
+                attempt_count_received_ack = 0
+                while attempt_count_received_ack < 10:
+                    if header_obj.message_id not in self.MESSAGES_ACKNOWLEDGMENT:
+                        message_confirmed = True
+                        break
+                    else:
+                        time.sleep(0.5)
+                        attempt_count_received_ack += 1
+                if message_confirmed:
+                    break
+                else:
+                    attempt += 1
+            if message_confirmed:
+                view.print_ack_text()
+            else:
+                logging.debug(
+                    f'message was not acknowledged by receiver. Current ack_list: {self.MESSAGES_ACKNOWLEDGMENT}'
+                    f'\nSending route error message')
+                self.routing_table.delete_all_entries_of_destination(destination)
+                self.delete_from_ack_list(header_obj.message_id)
+                self.send_header(header.RouteErrorHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL,
+                                                         header_obj.destination).get_header_str())
 
     def send_route_request_message(self, end_node):
         route_request_header_obj = header.RouteRequestHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, 0,
@@ -127,16 +133,19 @@ class ProtocolLite:
         message_confirmed = False
         while attempt < 3 and not message_confirmed:
             self.send_header(route_request_header_obj.get_header_str())
-            with timeout(5):
-                try:
-                    logging.debug('attempt: {}'.format(attempt))
-                    while True:
-                        if len(self.routing_table.get_best_route_for_destination(end_node)) != 0:
-                            logging.debug('new route for {} found'.format(end_node))
-                            message_confirmed = True
-                            break
-                except TimeoutError:
-                    attempt = attempt + 1
+            check_request_attempt_count = 0
+            while check_request_attempt_count < 10:
+                logging.debug('attempt: {}'.format(attempt))
+                if len(self.routing_table.get_best_route_for_destination(end_node)) != 0:
+                    logging.debug('new route for {} found'.format(end_node))
+                    message_confirmed = True
+                    break
+                else:
+                    check_request_attempt_count += 1
+            if message_confirmed:
+                return message_confirmed
+            else:
+                attempt += 1
         return message_confirmed
 
     def process_route_request(self, header_obj):
@@ -233,7 +242,8 @@ class ProtocolLite:
         self.send_header(header_obj.get_header_str())
 
     def process_ack_header(self, header_obj):
-        self.edit_message_acknowledgment_list(header_obj)
+        if header_obj.destination == variables.MY_ADDRESS:
+            self.edit_message_acknowledgment_list(header_obj)
         header_obj.ttl -= 1
         logging.debug('forward ack message')
         if header_obj.destination != variables.MY_ADDRESS:
@@ -261,6 +271,7 @@ class ProtocolLite:
         # TODO make sure same request is not forwarded multiple times
         if header_obj.received_from != variables.MY_ADDRESS:
             if header_obj.end_node == variables.MY_ADDRESS:
+                self.connected_node = header_obj.source
                 # send connect request to java side
                 logging.debug("send connect request to java side")
                 self.sending_queue.put(xml.create_xml_from_connect_request_header(header_obj))
@@ -278,30 +289,13 @@ class ProtocolLite:
         elif self.routing_table.get_address_of_peer(source_peer_id) != variables.MY_ADDRESS:
             # TODO is source_peer always registered on own instance?
             raise ValueError('source peer is not registered on this node')
-        else:
+        elif not self.routing_table.check_connect_request_entry_already_exists(source_peer_id, target_peer_id):
+            self.routing_table.add_connect_request(source_peer_id, target_peer_id)
             end_node = self.routing_table.get_address_of_peer(target_peer_id)
             self.send_header(ConnectRequestHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, end_node,
                                                   self.routing_table.get_best_route_for_destination(end_node)[
                                                       'next_node'], source_peer_id, target_peer_id,
                                                   timeout_in_sec).get_header_str())
-            # with timeout(int(timeout_in_sec)):
-            #     try:
-            #         while True:
-            #             if not self.connect_request_queue.empty():
-            #                 # get element from queue and compare peer id's
-            #                 connect_request = self.connect_request_queue.get()
-            #                 if time.time() - connect_request[1] < float(timeout_in_sec):
-            #                     connect_request_obj = connect_request[0]
-            #                     if connect_request_obj.source_peer_id == source_peer_id \
-            #                             and connect_request_obj.target_peer_id == target_peer_id:
-            #                         logging.debug(f"connection to node '{end_node}' established")
-            #                         self.connected_node = end_node
-            #                         return True
-            #             else:
-            #                 time.sleep(0.2)
-            #     except TimeoutError:
-            #         logging.debug(f"could not establish connection to target peer '{target_peer_id}'")
-            #         return False
 
     def send_registration_message(self, subscribe, peer_id):
         if subscribe:
@@ -325,20 +319,20 @@ class ProtocolLite:
         consumer_producer.PRODUCER_THREAD_ACTIVE = False
 
     def add_message_to_waiting_acknowledgement_list(self, message_header_obj):
-        ack_id = calculate_ack_id(message_header_obj.source, message_header_obj.payload)
-        logging.debug('adding {} to ack list'.format(ack_id))
-        self.MESSAGES_ACKNOWLEDGMENT.append(ack_id)
-        return ack_id
+        message_id = message_header_obj.message_id
+        logging.debug(f"adding '{message_id}' to ack list")
+        self.MESSAGES_ACKNOWLEDGMENT.append(message_id)
+        return
 
     def edit_message_acknowledgment_list(self, message_ack_header_obj):
-        self.delete_from_ack_list(message_ack_header_obj.ack_id)
+        self.delete_from_ack_list(message_ack_header_obj.message_id)
 
     def delete_from_ack_list(self, ack_id):
         logging.debug(f'remove {ack_id} from ack list')
         try:
-            self.MESSAGES_ACKNOWLEDGMENT.remove(ack_id)
+            self.MESSAGES_ACKNOWLEDGMENT.remove(int(ack_id))
         except ValueError:
-            logging.debug('ack is not in list')
+            logging.debug(f'ack is not in list. Current ack list: {self.MESSAGES_ACKNOWLEDGMENT}')
 
 
 @contextmanager

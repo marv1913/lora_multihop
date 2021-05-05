@@ -13,6 +13,15 @@ def config_module(configuration=variables.MODULE_CONFIG):
     return False
 
 
+def set_address(address):
+    cmd = f'AT+ADDR={address}'
+    if consumer_producer.execute_command(cmd, [variables.STATUS_OK]):
+        logging.debug(f'module address successfully set to: {address}')
+        return True
+    logging.warning("could not set module address")
+    return False
+
+
 def get_current_address():
     consumer_producer.execute_command(variables.GET_ADDR)
     addr = consumer_producer.response_q.get(variables.COMMAND_VERIFICATION_TIMEOUT)

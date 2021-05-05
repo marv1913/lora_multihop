@@ -15,7 +15,7 @@ class JavaIPC:
         self.listen_for_connections = True
         variables.MY_ADDRESS = consumer_producer.get_current_address_from_module()
         logging.info('loaded address of module: {}'.format(variables.MY_ADDRESS))
-        self.protocol = ProtocolLite(self.send_message_to_java_client)
+        self.protocol = ProtocolLite()
         self.protocol.start_protocol_thread()
         self.connection = None
         threading.Thread(target=self.start_tcp_server_for_message_transfer).start()
@@ -28,11 +28,17 @@ class JavaIPC:
         conn.settimeout(1)
         while self.listen_for_connections:
             try:
-                if not self.protocol.received_messages_queue.empty():
-                    conn.send(self.protocol.received_messages_queue.get())
+                data = conn.recv(1024)
+                print(f'data: {data}')
+                self.protocol.send_message(data)
+                if not data:
+                    conn.close()
+                    print('closed')
+                    break
             except socket.timeout:
-                if not self.protocol.sending_messages_queue.empty():
-                    conn.send(self.protocol.sending_messages_queue.get())
+                if not self.protocol.received_messages_queue.empty():
+                    logging.debug('send message via rpc to java side')
+                    conn.send(str.encode(self.protocol.received_messages_queue.get()))
 
     def start_tcp_server(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

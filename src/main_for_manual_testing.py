@@ -37,13 +37,6 @@ if __name__ == '__main__':
     logging.info('loaded address of module: {}'.format(variables.MY_ADDRESS))
 
     protocol.start_protocol_thread()
-
-    time.sleep(12)
-
-    protocol.send_registration_message(True, 'test201')
-    input('enter text to continue')
-
-    time.sleep(5)
-
-    print(protocol.send_connect_request_header('test201', 'test200', 20))
-
+    protocol.connected_node = '0200'
+    time.sleep(2)
+    protocol.send_message('hallo')

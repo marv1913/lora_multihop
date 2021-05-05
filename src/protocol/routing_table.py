@@ -16,6 +16,7 @@ class RoutingTable:
         self.processed_registration_messages = []
         self.available_peers = []
         self.received_messages = []
+        self.processed_connect_request = []
 
     def add_routing_table_entry(self, destination, next_node, hops):
         new_routing_table_entry = {'destination': destination, 'next_node': next_node, 'hops': hops}
@@ -30,6 +31,21 @@ class RoutingTable:
     def add_received_message(self, source, message_id):
         if not self.check_message_already_received(source, message_id):
             self.received_messages.append({'source': source, 'message_id': message_id})
+
+    def add_connect_request(self, source_peer_id, target_peer_id):
+        self.processed_connect_request.append(
+            {'source_peer_id': source_peer_id, 'target_peer_id': target_peer_id, 'time': time.time()})
+
+    def check_connect_request_entry_already_exists(self, source_peer_id, target_peer_id):
+        new_list = []
+        current_time = time.time()
+        for entry in self.processed_connect_request:
+            if current_time - entry['time'] < 45:
+                new_list.append(entry)
+        for entry in new_list:
+            if entry['source_peer_id'] == source_peer_id and entry['target_peer_id'] == target_peer_id:
+                return True
+        return False
 
     def check_message_already_received(self, source, message_id):
         for entry in self.received_messages:
