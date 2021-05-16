@@ -34,6 +34,7 @@ class ProtocolLite:
 
         self.connected_node = None
         self.message_counter = 0
+        self.received_own_registration_message = False
 
     def start_protocol_thread(self):
         receiving_thread = threading.Thread(target=self.process_incoming_message)
@@ -132,6 +133,7 @@ class ProtocolLite:
         attempt = 0
         message_confirmed = False
         while attempt < 3 and not message_confirmed:
+            # TODO fix bug
             self.send_header(route_request_header_obj.get_header_str())
             check_request_attempt_count = 0
             while check_request_attempt_count < 10:
@@ -141,6 +143,7 @@ class ProtocolLite:
                     message_confirmed = True
                     break
                 else:
+                    time.sleep(0.5)
                     check_request_attempt_count += 1
             if message_confirmed:
                 return message_confirmed
@@ -190,7 +193,7 @@ class ProtocolLite:
                 logging.debug('sending acknowledgement')
                 self.send_header(ack_header_str)
 
-        elif header_obj.next_node == variables.MY_ADDRESS:
+        elif header_obj.next_node == variables.MY_ADDRESS and header_obj.destination != variables.MY_ADDRESS:
             best_route = self.routing_table.get_best_route_for_destination(header_obj.destination)
             if len(best_route) == 0:
                 logging.info(
@@ -254,18 +257,20 @@ class ProtocolLite:
     def process_registration_header(self, header_obj):
         if header_obj.source != variables.MY_ADDRESS:
             header_obj.ttl -= 1
-            if self.routing_table.check_registration_message_already_processed(header_obj.source):
-                logging.debug('registration message already has been processed')
+            # if self.routing_table.check_registration_message_already_processed(header_obj.source):
+            #     logging.debug('registration message already has been processed')
+            # else:
+            self.routing_table.add_address_to_processed_registration_messages_list(header_obj.source)
+            if header_obj.subscribe:
+                logging.debug('registered new peer')
+                self.routing_table.add_peer(header_obj.peer_id, header_obj.source)
             else:
-                self.routing_table.add_address_to_processed_registration_messages_list(header_obj.source)
-                if header_obj.subscribe:
-                    logging.debug('registered new peer')
-                    self.routing_table.add_peer(header_obj.peer_id, header_obj.source)
-                else:
-                    logging.debug('unregistered peer')
-                    self.routing_table.delete_peer(header_obj.peer_id, header_obj.source)
-                logging.debug('forward registration message')
-                self.send_header(header_obj.get_header_str())
+                logging.debug('unregistered peer')
+                self.routing_table.delete_peer(header_obj.peer_id, header_obj.source)
+            logging.debug('forward registration message')
+            self.send_header(header_obj.get_header_str())
+        else:
+            self.received_own_registration_message = True
 
     def process_connect_request_header(self, header_obj):
         # TODO make sure same request is not forwarded multiple times
@@ -292,9 +297,17 @@ class ProtocolLite:
         elif not self.routing_table.check_connect_request_entry_already_exists(source_peer_id, target_peer_id):
             self.routing_table.add_connect_request(source_peer_id, target_peer_id)
             end_node = self.routing_table.get_address_of_peer(target_peer_id)
+            route = self.routing_table.get_best_route_for_destination(end_node)
+            if len(route) == 0:
+                logging.info(
+                    'could not find a route to {}. Sending route request...'.format(end_node))
+                if self.send_route_request_message(end_node):
+                    route = self.routing_table.get_best_route_for_destination(end_node)
+                else:
+                    logging.info('Got no answer on route requested.'.format(end_node))
+                    return
             self.send_header(ConnectRequestHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, end_node,
-                                                  self.routing_table.get_best_route_for_destination(end_node)[
-                                                      'next_node'], source_peer_id, target_peer_id,
+                                                  route['next_node'], source_peer_id, target_peer_id,
                                                   timeout_in_sec).get_header_str())
 
     def send_registration_message(self, subscribe, peer_id):
@@ -302,8 +315,24 @@ class ProtocolLite:
             self.routing_table.add_peer(peer_id, variables.MY_ADDRESS)
         else:
             self.routing_table.delete_peer(peer_id, variables.MY_ADDRESS)
-        self.send_header(
-            RegistrationHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, subscribe, peer_id).get_header_str())
+        attempts = 0
+        received_own_request = False
+        self.received_own_registration_message = False
+
+        while attempts < 3:
+            self.send_header(RegistrationHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, subscribe,
+                                                peer_id).get_header_str())
+            check_attempt_count = 0
+            while check_attempt_count < 5:
+                if self.received_own_registration_message:
+                    received_own_request = True
+                    break
+                else:
+                    check_attempt_count += 1
+                    time.sleep(0.5)
+            attempts += 1
+            if received_own_request:
+                return
 
     def send_route_error(self, end_node):
         route_error_header_obj = header.RouteErrorHeader(None, variables.MY_ADDRESS, 9, end_node)

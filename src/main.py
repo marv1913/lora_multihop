@@ -30,9 +30,11 @@ if __name__ == '__main__':
 
     # module_config.config_module()
     consumer_producer.start_send_receive_threads(ser)
-    # time.sleep(1)
-    # module_config.set_address('0201')
 
-    java_ipc = JavaIPC()
+    time.sleep(1)
+    module_config.set_address('0202')
+    time.sleep(2)
+
+    java_ipc = JavaIPC(ipc_port=6000, message_port=6100)
     java_ipc.start_tcp_server()
 

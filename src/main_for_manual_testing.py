@@ -22,21 +22,7 @@ def reset_module():
 
 
 if __name__ == '__main__':
-    # reset_module()
-    logging.basicConfig()
-    logging.getLogger().setLevel(logging.DEBUG)
-
-    ser = serial.serial_for_url('/dev/ttyS0', baudrate=115200, timeout=20)
-    # module_conf = ModuleConfig(consumer_producer.ser)
-    # module_conf.config_module()
-    consumer_producer.start_send_receive_threads(ser)
-
-    protocol = ProtocolLite()
-
-    variables.MY_ADDRESS = consumer_producer.get_current_address_from_module()
-    logging.info('loaded address of module: {}'.format(variables.MY_ADDRESS))
-
-    protocol.start_protocol_thread()
-    protocol.connected_node = '0200'
-    time.sleep(2)
-    protocol.send_message('hallo')
+    msg_as_bytes = 'LR,10,|0100|hällo|'.encode()
+    print(msg_as_bytes)
+    print(msg_as_bytes.hex())
+    print(b'LR,10,|0100|h\xc3\xa4llo|'.decode())
