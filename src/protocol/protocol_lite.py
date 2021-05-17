@@ -133,11 +133,10 @@ class ProtocolLite:
         attempt = 0
         message_confirmed = False
         while attempt < 3 and not message_confirmed:
-            # TODO fix bug
+            logging.debug('attempt: {}'.format(attempt))
             self.send_header(route_request_header_obj.get_header_str())
             check_request_attempt_count = 0
             while check_request_attempt_count < 10:
-                logging.debug('attempt: {}'.format(attempt))
                 if len(self.routing_table.get_best_route_for_destination(end_node)) != 0:
                     logging.debug('new route for {} found'.format(end_node))
                     message_confirmed = True
@@ -283,8 +282,15 @@ class ProtocolLite:
                 logging.debug("send connect request to java side")
                 self.sending_queue.put(xml.create_xml_from_connect_request_header(header_obj))
             elif header_obj.next_node == variables.MY_ADDRESS:
-                # forward message
-                raise NotImplementedError()
+                logging.debug('forward connect request header')
+                route = self.routing_table.get_best_route_for_destination(header_obj.end_node)
+                if len(route) > 0:
+                    header_obj.next_node = route['next_node']
+                    header_obj.ttl -= 1
+                    self.send_header(header_obj.get_header_str())
+                else:
+                    logging.debug(f'could not forward connect request header, because there is no routing table entry '
+                                  f'for destination address {header_obj.end_node}')
 
     def send_connect_request_header(self, source_peer_id, target_peer_id, timeout_in_sec):
         # look for address of source peer id and check whether source peer is already registered

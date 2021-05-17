@@ -290,7 +290,7 @@ class ConnectRequestHeader(Header):
                " " + self.source_peer_id + " " + self.target_peer_id + " " + self.timeout
 
     def get_header_str(self):
-        return create_header_str(self.source, str(self.flag), str(self.ttl), self.end_node, self.end_node,
+        return create_header_str(self.source, str(self.flag), str(self.ttl), self.end_node, self.next_node,
                                  self.source_peer_id, self.target_peer_id, self.timeout)
 
 
