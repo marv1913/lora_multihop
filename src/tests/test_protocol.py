@@ -40,11 +40,11 @@ class ProtocolTest(unittest.TestCase):
         variables.PROCESSED_ROUTE_REQUEST_TIMEOUT = 8
 
     def test_process_registration_message_header_edge_same_message_two_times(self):
-        registration_message_header_obj = RegistrationHeader(None, '0131', 0, True, 'testPeer')
+        registration_message_header_obj = RegistrationHeader(None, '0131', 5, True, 'testPeer')
         with patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked:
             self.protocol.process_registration_header(registration_message_header_obj)
             self.protocol.process_registration_header(registration_message_header_obj)
-
+            print(send_header_mocked.call_args_list)
             self.assertEqual(1, send_header_mocked.call_count)
 
     def test_process_registration_message_header_bad_own_message(self):
@@ -56,5 +56,5 @@ class ProtocolTest(unittest.TestCase):
 
     def test_process_connect_request_header_good(self):
         variables.MY_ADDRESS = '0201'
-        connect_request_header_obj = ConnectRequestHeader('0200', '0200', 5, '0201', '0201', 'test1', 'test2')
+        connect_request_header_obj = ConnectRequestHeader('0200', '0200', 5, '0201', '0201', 'test1', 'test2', '2')
         self.protocol.process_connect_request_header(connect_request_header_obj)

@@ -145,6 +145,7 @@ class ProtocolLite:
                 else:
                     time.sleep(0.5)
                     check_request_attempt_count += 1
+            attempt += 1
             if message_confirmed:
                 return message_confirmed
             else:
@@ -257,6 +258,7 @@ class ProtocolLite:
     def process_registration_header(self, header_obj):
         if header_obj.source != variables.MY_ADDRESS:
             header_obj.ttl -= 1
+            # TODO check whether this code could be used
             # if self.routing_table.check_registration_message_already_processed(header_obj.source):
             #     logging.debug('registration message already has been processed')
             # else:
