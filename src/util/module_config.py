@@ -5,8 +5,9 @@ from util import variables
 
 
 def config_module(configuration=variables.MODULE_CONFIG):
-    configuration = configuration + '\r\n'
     if consumer_producer.execute_command(configuration, [variables.STATUS_OK]):
+        consumer_producer.execute_command('AT+SEND=1', [variables.STATUS_OK])
+        consumer_producer.execute_command('a', ['AT,SENDING', 'AT,SENDED'])
         logging.debug('module config successfully set')
         return True
     logging.warning("could not set module config")
