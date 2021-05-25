@@ -2,7 +2,7 @@ import logging
 import os
 
 from ipc.java_ipc import JavaIPC
-from tests.integration_tests.local_consumer_producer import LocalConsumerProducer
+from tests.integration_tests.local_consumer_producer_single_node import LocalConsumerProducer
 from util import variables
 
 if __name__ == '__main__':
@@ -22,8 +22,3 @@ if __name__ == '__main__':
     java_ipc = JavaIPC(ipc_port=int(os.getenv('IPC_PORT')), message_port=int(os.getenv('MESSAGE_PORT')),
                        module_address=module_address)
     java_ipc.start_ipc()
-    # while True:
-    #     if input() == 'exit':
-    #         java_ipc.stop_ipc_instance()
-    #         read_write.stop_local_consumer_producer()
-    #         break

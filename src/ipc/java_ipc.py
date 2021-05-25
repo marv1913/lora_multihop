@@ -28,18 +28,13 @@ class JavaIPC:
         self.ipc_tcp_server_thread = None
 
     def start_tcp_server_for_message_transfer(self):
-        client_connected = False
-        while not client_connected and self.listen_for_connections:
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(2)
-                s.bind(("", self.message_port))
-                s.listen(1)
-                conn, addr = s.accept()
-                conn.settimeout(1)
-                client_connected = True
-            except socket.timeout:
-                pass
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("", self.message_port))
+        s.listen(1)
+        conn, addr = s.accept()
+        print('client for message transfer connected')
+        conn.setblocking(False)
+
         while self.listen_for_connections:
             try:
                 data = conn.recv(1024)
@@ -48,14 +43,15 @@ class JavaIPC:
                     self.protocol.send_message(consumer_producer.bytes_to_str(data))
                 if not data:
                     conn.close()
-                    print('closed')
+                    print('closed message socket')
                     break
-            except socket.timeout:
-                if not self.protocol.received_messages_queue.empty():
-                    received_message = self.protocol.received_messages_queue.get()
-                    message = str.encode(received_message)
-                    logging.debug(f'send message via rpc to java side: {message}')
-                    conn.send(message)
+            except socket.error:
+                pass
+            if not self.protocol.received_messages_queue.empty():
+                received_message = self.protocol.received_messages_queue.get()
+                message = str.encode(received_message)
+                logging.debug(f'send message via rpc to java side: {message}')
+                conn.send(message)
 
     def start_tcp_server(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
