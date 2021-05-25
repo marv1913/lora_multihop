@@ -135,7 +135,6 @@ class RoutingTable:
     def add_address_to_processed_registration_messages_list(self, address):
         self.processed_registration_messages = add_address_to_processed_list(address,
                                                                              self.processed_registration_messages)
-        print(f"after adding {self.processed_registration_messages}")
 
     def delete_all_entries_of_destination(self, destination):
         new_list = []
@@ -153,7 +152,6 @@ class RoutingTable:
 
 def add_address_to_processed_list(address, processed_list):
     processed_list = clean_already_processed_requests_list(processed_list)
-    print(f'cleaned list: {processed_list}')
 
     if not check_message_already_processed(address, processed_list):
         processed_list.append({'address': address, 'time': time.time()})
