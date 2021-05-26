@@ -26,9 +26,9 @@ jobs:
           java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
           architecture: x64
       - name: set permissions of shell script
-        run: chmod +x integration_test/start_integration_test_container.sh
+        run: chmod +x integration_test/two_nodes/start_integration_test_container.sh
       - name: build and run LoRa simuulation node images
-        run: ./integration_test/start_integration_test_container.sh
+        run: ./integration_test/two_nodes/start_integration_test_container.sh
       # Runs a single command using the runners shell
       - name: run integration test
         run: java -jar integration_test/integration_tests.jar
