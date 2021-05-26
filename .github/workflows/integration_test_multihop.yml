@@ -1,4 +1,4 @@
-name: CI
+name: integration tests multihop
 
 # Controls when the action will run. 
 on:
