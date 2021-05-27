@@ -46,7 +46,7 @@ class ProtocolLite:
         if consumer_producer.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
             consumer_producer.q.put((header_str, ['AT,SENDING', 'AT,SENDED']))
             if consumer_producer.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
-                logging.debug("header '{}' sended.".format(header_str))
+                logging.debug("sent header '{}'.".format(header_str))
                 return
         logging.debug("could not send header '{}', because got invalid status from lora module".format(header_str))
 
