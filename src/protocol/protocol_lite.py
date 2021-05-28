@@ -37,10 +37,17 @@ class ProtocolLite:
         self.received_own_registration_message = False
 
     def start_protocol_thread(self):
+        """
+        starts new thread which processes incoming messages in background
+        """
         receiving_thread = threading.Thread(target=self.process_incoming_message)
         receiving_thread.start()
 
     def send_header(self, header_str):
+        """
+        sends a string to LoRa network
+        @param header_str: message to send
+        """
         wait_random_time()
         consumer_producer.q.put(('AT+SEND={}'.format(str(len(header_str))), ['AT,OK']))
         if consumer_producer.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
@@ -51,6 +58,9 @@ class ProtocolLite:
         logging.debug("could not send header '{}', because got invalid status from lora module".format(header_str))
 
     def process_incoming_message(self):
+        """
+        get messages from LoRa module, create header object and call appropriate method to process the received message
+        """
         while self.PROCESS_INCOMING_MESSAGES:
             if not consumer_producer.response_q.empty() and not self.PAUSE_PROCESSING_INCOMING_MESSAGES:
                 raw_message = consumer_producer.response_q.get()
@@ -84,6 +94,10 @@ class ProtocolLite:
                         logging.warning(str(e))
 
     def send_message(self, payload):
+        """
+        send message to currently connected peer
+        @param payload: message to send
+        """
         if self.connected_node is not None:
             destination = self.connected_node
             best_route = self.routing_table.get_best_route_for_destination(destination)
@@ -128,6 +142,11 @@ class ProtocolLite:
                                                          header_obj.destination).get_header_str())
 
     def send_route_request_message(self, end_node):
+        """
+        sends route request
+        @param end_node: node for which a route is required
+        @return: True, if route request was confirmed, else False
+        """
         route_request_header_obj = header.RouteRequestHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, 0,
                                                              end_node)
         attempt = 0
@@ -152,6 +171,10 @@ class ProtocolLite:
         return message_confirmed
 
     def process_route_request(self, header_obj):
+        """
+        processes received route request header
+        @param header_obj: route request header object
+        """
         # first of all check whether source of route request is myself (to prevent cycle)
         if header_obj.source != variables.MY_ADDRESS:
             # look whether requested node is myself
@@ -177,11 +200,22 @@ class ProtocolLite:
                     logging.debug('route request was already processed')
 
     def send_route_reply(self, next_node, end_node):
+        """
+        sends route reply message
+        @param next_node: next receiver of the message, which should forward the message to the destination node
+        @param end_node: node which sent the route request
+        """
         route_reply_header_obj = header.RouteReplyHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, 0, end_node,
                                                          next_node)
         self.send_header(route_reply_header_obj.get_header_str())
 
     def process_message_header(self, header_obj):
+        """
+        processed received message header; if the end node of the message is this node the message will be put
+        into the received_messages queue to forward the message via IPC to the Java side; else the message will be
+        forwarded to the next_node
+        @param header_obj: message header object
+        """
         if header_obj.destination == variables.MY_ADDRESS and header_obj.source == self.connected_node:
             ack_header_str = header.MessageAcknowledgeHeader(None, variables.MY_ADDRESS, variables.TTL_START_VALUE,
                                                              header_obj.source, header_obj.message_id).get_header_str()
@@ -208,6 +242,12 @@ class ProtocolLite:
             logging.debug('ignoring message: {}'.format(str(header_obj)))
 
     def process_route_reply_header(self, header_obj):
+        """
+        processes route reply header; if the source address is equal to the own address the message will be rejected;
+        if the destination address is equal to the own address a new route will be added to the routing table, else
+        the message will be forwarded to the address mentioned in the next_node field
+        @param header_obj: route reply header object
+        """
         if header_obj.source == variables.MY_ADDRESS:
             return
         if header_obj.end_node == variables.MY_ADDRESS:
@@ -235,6 +275,10 @@ class ProtocolLite:
                 # self.send_route_error(header_obj.source)
 
     def process_route_error_header(self, header_obj):
+        """
+        processes route error header; node will be deleted from routing table
+        @param header_obj: route error header object
+        """
         if header_obj.broken_node in self.routing_table.get_list_of_all_available_destinations():
             logging.debug(f'received route error. Remove {header_obj.broken_node} from routing table')
             self.routing_table.delete_all_entries_of_destination(header_obj.broken_node)
@@ -245,6 +289,11 @@ class ProtocolLite:
         self.send_header(header_obj.get_header_str())
 
     def process_ack_header(self, header_obj):
+        """
+        processes message acknowledgement header; if the destination address is equal to the own address the header
+        object will be added to the message_acknowledgement_list, else the message will be forwarded
+        @param header_obj: message acknowledgement header object
+        """
         if header_obj.destination == variables.MY_ADDRESS:
             self.edit_message_acknowledgment_list(header_obj)
         header_obj.ttl -= 1
