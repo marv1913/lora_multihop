@@ -13,7 +13,6 @@ from protocol import consumer_producer
 from protocol.header import RegistrationHeader, ConnectRequestHeader
 from util import variables
 from protocol import header
-from messenger import view
 from protocol.routing_table import RoutingTable
 
 __author__ = "Marvin Rausch"
@@ -129,7 +128,7 @@ class ProtocolLite:
                 else:
                     attempt += 1
             if message_confirmed:
-                view.print_ack_text()
+                print('*******************message was acknowledged by receiver*******************')
             else:
                 logging.debug(
                     f'message was not acknowledged by receiver. Current ack_list: {self.MESSAGES_ACKNOWLEDGMENT}'

@@ -124,6 +124,6 @@ class JavaIPC:
         self.tcp_server_active = False
         self.protocol.stop()
 
+
 def create_connect_request_message(source_peer_id, target_peer_id, timeout):
     return f'ConnectRequest,{source_peer_id},{target_peer_id},{timeout}'
-
