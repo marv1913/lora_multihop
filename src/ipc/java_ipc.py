@@ -39,7 +39,7 @@ class JavaIPC:
                 data = conn.recv(1024)
                 print(f'data: {data}')
                 if len(data) > 0:
-                    self.protocol.send_message(consumer_producer.bytes_to_str(data))
+                    self.protocol.send_message(data)
                 if not data:
                     conn.close()
                     print('closed message socket')
@@ -48,7 +48,7 @@ class JavaIPC:
                 pass
             if not self.protocol.received_messages_queue.empty():
                 received_message = self.protocol.received_messages_queue.get()
-                message = str.encode(received_message)
+                message = bytes.fromhex(received_message)
                 logging.debug(f'send message via rpc to java side: {message}')
                 conn.send(message)
 
@@ -64,7 +64,6 @@ class JavaIPC:
                     self.connection = conn
                     logging.debug(f'connected to java ipc with address {addr}')
                     while self.tcp_server_active:
-                        print(self.tcp_server_active)
                         conn.settimeout(1)
                         try:
                             data = conn.recv(1024)
@@ -79,9 +78,9 @@ class JavaIPC:
                                     registered_peers = self.protocol.routing_table.get_peers()
                                     message = 'RegisteredPeers'
                                     for i in range(0, len(registered_peers)):
-                                        message = message + ',' + registered_peers[i]
+                                        message = message + ',' + registered_peers[i]['peer_id']
                                     logging.debug(f'send registered peer to java: {registered_peers}')
-                                    conn.send(message + '|')
+                                    conn.send((message + '|').encode(variables.ENCODING))
                                 elif len(message) != 0:
                                     logging.debug(f'request from java side: {message}')
                                     message_values = message.split(variables.JAVA_IPC_MESSAGE_VALUES_DELIMITER)
@@ -100,7 +99,7 @@ class JavaIPC:
                             while not self.protocol.sending_queue.empty():
                                 payload = self.protocol.sending_queue.get()
                                 logging.debug(f'sending: {payload}')
-                                conn.send(payload + b'|')
+                                conn.send((payload + '|').encode(variables.ENCODING))
                         except BrokenPipeError:
                             logging.debug('connection reset by client')
                             break

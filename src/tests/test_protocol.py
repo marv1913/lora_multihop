@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch, call
+from unittest.mock import patch, call, MagicMock
 
 from protocol import protocol_lite, header, consumer_producer
 from protocol.header import RegistrationHeader, ConnectRequestHeader
@@ -89,7 +89,8 @@ class ProtocolTest(unittest.TestCase):
                 patch.object(RoutingTable, 'get_address_of_peer') as get_address_of_peer_mocked, \
                 patch.object(RoutingTable, 'get_best_route_for_destination') as get_best_route_mocked, \
                 patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked, \
-            patch.object(protocol_lite.ProtocolLite, 'send_route_request_message', return_value=True) as route_request:
+                patch.object(protocol_lite.ProtocolLite, 'send_route_request_message',
+                             return_value=True) as route_request:
             get_best_route_mocked.side_effect = [{}, {'next_node': '0202'}]
 
             get_address_of_peer_mocked.side_effect = ['0201', '0202']
@@ -105,7 +106,7 @@ class ProtocolTest(unittest.TestCase):
                 patch.object(RoutingTable, 'get_address_of_peer') as get_address_of_peer_mocked, \
                 patch.object(RoutingTable, 'get_best_route_for_destination', return_value={}), \
                 patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked, \
-            patch.object(protocol_lite.ProtocolLite, 'send_route_request_message', return_value=False):
+                patch.object(protocol_lite.ProtocolLite, 'send_route_request_message', return_value=False):
             get_address_of_peer_mocked.side_effect = ['0201', '0202']
 
             self.protocol.send_connect_request_header('Alice', 'Bob', 60)
@@ -131,4 +132,82 @@ class ProtocolTest(unittest.TestCase):
             self.assertTrue(consumer_producer.q.empty())
             wait_random_time_mocked.assert_called_once()
 
+    def test_process_incoming_route_request(self):
+        with patch.object(RoutingTable, 'add_neighbor_to_routing_table') as add_neighbor_mocked, \
+                patch.object(protocol_lite.ProtocolLite, 'process_route_request') as process_route_request_mocked:
+            consumer_producer.response_q.put('LR,0136,10,|0137|3|8|4|0138|')
+            self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
+            self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
+            self.protocol.process_incoming_message()
+            process_route_request_mocked.assert_called_once()
+            add_neighbor_mocked.assert_called_once()
 
+    def test_process_incoming_message_header(self):
+        with patch.object(RoutingTable, 'add_neighbor_to_routing_table'), \
+                patch.object(protocol_lite.ProtocolLite, 'process_message_header') as process_message_header_mocked:
+            consumer_producer.response_q.put('LR,0136,10,|0135|1|3|0138|0137|000001|hello|')
+            self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
+            self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
+            self.protocol.process_incoming_message()
+            process_message_header_mocked.assert_called_once()
+
+    def test_process_incoming_route_reply_header(self):
+        with patch.object(RoutingTable, 'add_neighbor_to_routing_table'), \
+                patch.object(protocol_lite.ProtocolLite, 'process_route_reply_header') as process_route_reply_mocked:
+            consumer_producer.response_q.put('LR,0136,10,|0137|4|8|3|0139|0140|')
+            self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
+            self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
+            self.protocol.process_incoming_message()
+            process_route_reply_mocked.assert_called_once()
+
+    def test_process_incoming_route_error_header(self):
+        with patch.object(RoutingTable, 'add_neighbor_to_routing_table'), \
+                patch.object(protocol_lite.ProtocolLite, 'process_route_error_header') as process_route_error_mocked:
+            consumer_producer.response_q.put('LR,0131,10,|0131|5|4|0132|')
+            self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
+            self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
+            self.protocol.process_incoming_message()
+            process_route_error_mocked.assert_called_once()
+
+    def test_process_incoming_message_ack_header(self):
+        with patch.object(RoutingTable, 'add_neighbor_to_routing_table'), \
+                patch.object(protocol_lite.ProtocolLite, 'process_ack_header') as process_ack_header_mocked:
+            consumer_producer.response_q.put('LR,0137,16,|0137|2|5|0138|8774d3|')
+            self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
+            self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
+            self.protocol.process_incoming_message()
+            process_ack_header_mocked.assert_called_once()
+
+    def test_process_incoming_registration_header(self):
+        with patch.object(RoutingTable, 'add_neighbor_to_routing_table'), \
+                patch.object(protocol_lite.ProtocolLite, 'process_registration_header') as process_registration_mocked:
+            consumer_producer.response_q.put('LR,0131,10,|0131|6|4|true|test|')
+            self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
+            self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
+            self.protocol.process_incoming_message()
+            process_registration_mocked.assert_called_once()
+
+    def test_process_incoming_connect_request_header(self):
+        with patch.object(RoutingTable, 'add_neighbor_to_routing_table'), \
+                patch.object(protocol_lite.ProtocolLite, 'process_connect_request_header') as connect_request_mocked:
+            consumer_producer.response_q.put('LR,0131,10,|0131|7|4|0132|0132|alice|bob|60|')
+            self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
+            self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
+            self.protocol.process_incoming_message()
+            connect_request_mocked.assert_called_once()
+
+    def test_process_incoming_message_bad_invalid_format(self):
+        with patch.object(RoutingTable, 'add_neighbor_with_unsupported_protocol') as add_unsupported_node_mocked:
+            consumer_producer.response_q.put('LR,0200,10,invalid message')
+            self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
+            self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
+            self.protocol.process_incoming_message()
+            add_unsupported_node_mocked.assert_called_once()
+
+    def test_process_incoming_message_bad_invalid_format_without_source_address(self):
+        with patch.object(RoutingTable, 'add_neighbor_with_unsupported_protocol') as add_unsupported_node_mocked:
+            consumer_producer.response_q.put('invalid message')
+            self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
+            self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
+            self.protocol.process_incoming_message()
+            add_unsupported_node_mocked.assert_not_called()

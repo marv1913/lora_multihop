@@ -64,7 +64,6 @@ class ProtocolLite:
         while self.PROCESS_INCOMING_MESSAGES:
             if not consumer_producer.response_q.empty() and not self.PAUSE_PROCESSING_INCOMING_MESSAGES:
                 raw_message = consumer_producer.response_q.get()
-
                 try:
                     header_obj = header.create_header_obj_from_raw_message(raw_message)
                     if header_obj.ttl > 1:
@@ -83,7 +82,6 @@ class ProtocolLite:
                             self.process_registration_header(header_obj)
                         elif header_obj.flag == header.ConnectRequestHeader.HEADER_TYPE:
                             self.process_connect_request_header(header_obj)
-
                 except ValueError as e:
                     logging.warning(str(e))
                     try:
@@ -96,7 +94,7 @@ class ProtocolLite:
     def send_message(self, payload):
         """
         send message to currently connected peer
-        @param payload: message to send
+        @param payload: message to send as bytes
         """
         if self.connected_node is not None:
             destination = self.connected_node
@@ -111,7 +109,7 @@ class ProtocolLite:
                     return
             self.message_counter += 1
             header_obj = header.MessageHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, destination,
-                                              best_route['next_node'], self.message_counter, payload)
+                                              best_route['next_node'], self.message_counter, payload.hex())
             attempt = 0
             self.add_message_to_waiting_acknowledgement_list(header_obj)
             message_confirmed = False

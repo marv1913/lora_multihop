@@ -1,8 +1,7 @@
 import logging
-import os
 
 from ipc.java_ipc import JavaIPC
-from tests.integration_tests.local_consumer_producer import LocalConsumerProducer
+from tests.integration_tests.local_consumer_producer_single_node import LocalConsumerProducer
 from util import variables
 
 if __name__ == '__main__':

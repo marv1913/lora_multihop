@@ -4,6 +4,8 @@ from protocol import header
 
 __author__ = "Marvin Rausch"
 
+from util import variables
+
 
 class HeaderTest(unittest.TestCase):
 
@@ -91,6 +93,14 @@ class HeaderTest(unittest.TestCase):
         message_header_obj = header.MessageHeader('0131', '0130', 9, '0133', '0132', 1, 'hello')
         self.assertEqual('|0130|1|9|0133|0132|000001|hello|', message_header_obj.get_header_str())
 
+    def test_get_header_str_message_header_edge_payload_byte(self):
+        test_byte = b'\xac\xed\x00\x05sr\x00\x11java.lang.Integer\x12\xe2\xa0\xa4\xf7\x81\x878\x02\x00\x01I\x00\x05valuexr\x00\x10java.lang.Number\x86\xac\x95\x1d\x0b\x94\xe0\x8b\x02\x00\x00xp\x00\x00\x00\n'
+        payload = test_byte.hex()
+        message_header_obj = header.MessageHeader('0131', '0130', 9, '0133', '0132', 1, payload)
+        header_obj_from_message = header.create_header_obj_from_raw_message(
+            'LR,0200,10,' + message_header_obj.get_header_str())
+        self.assertEqual(test_byte, bytes.fromhex(header_obj_from_message.payload))
+
     def test_get_header_str_ack_header_good(self):
         message_header_obj = header.MessageAcknowledgeHeader(received_from=None, ttl=9, source='0132',
                                                              destination='0133', message_id='example_hash')
@@ -122,9 +132,3 @@ class HeaderTest(unittest.TestCase):
 
     def test_create_registration_header_from_message_str_bad_empty_peer_id(self):
         self.assertRaises(ValueError, header.create_header_obj_from_raw_message, 'LR,0131,10,|0131|6|4|true||')
-
-
-
-
-
-
