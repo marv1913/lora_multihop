@@ -2,7 +2,6 @@ import logging
 import socket
 import threading
 
-from ipc import xml
 from protocol import consumer_producer
 from protocol.protocol_lite import ProtocolLite
 from util import variables
@@ -57,7 +56,6 @@ class JavaIPC:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.bind(("", self.ipc_port))
         s.listen(1)
-        self.tcp_server_active = True
         try:
             while self.listen_for_connections:
                 try:
@@ -66,6 +64,7 @@ class JavaIPC:
                     self.connection = conn
                     logging.debug(f'connected to java ipc with address {addr}')
                     while self.tcp_server_active:
+                        print(self.tcp_server_active)
                         conn.settimeout(1)
                         try:
                             data = conn.recv(1024)
@@ -78,20 +77,25 @@ class JavaIPC:
                             for message in received_data_as_list:
                                 if message == 'registeredPeers?':
                                     registered_peers = self.protocol.routing_table.get_peers()
+                                    message = 'RegisteredPeers'
+                                    for i in range(0, len(registered_peers)):
+                                        message = message + ',' + registered_peers[i]
                                     logging.debug(f'send registered peer to java: {registered_peers}')
-                                    conn.send(xml.get_available_peers_as_xml_str(registered_peers) + b'|')
+                                    conn.send(message + '|')
                                 elif len(message) != 0:
-                                    logging.debug(f'xml message: {message}')
-                                    root = xml.parse_xml(message.encode())
-                                    if root.tag == 'registrationModel':
-                                        registration_message_parameter = xml.parse_registration_message_from_xml(root)
-                                        self.protocol.send_registration_message(registration_message_parameter[0],
-                                                                                registration_message_parameter[1])
-                                    elif root.tag == 'connection_request':
-                                        route_request_parameter = xml.parse_connect_request_from_xml(root)
-                                        self.protocol.send_connect_request_header(route_request_parameter[0],
-                                                                                  route_request_parameter[1],
-                                                                                  route_request_parameter[2])
+                                    logging.debug(f'request from java side: {message}')
+                                    message_values = message.split(variables.JAVA_IPC_MESSAGE_VALUES_DELIMITER)
+                                    message_type = message_values[0]
+                                    if message_type == 'Registration':
+                                        subscribe_str = message_values[2]
+                                        if subscribe_str.lower() == 'true':
+                                            subscribe = True
+                                        else:
+                                            subscribe = False
+                                        self.protocol.send_registration_message(subscribe, message_values[1])
+                                    elif message_type == 'ConnectRequest':
+                                        self.protocol.send_connect_request_header(message_values[1], message_values[2],
+                                                                                  message_values[3])
                         except socket.timeout:
                             while not self.protocol.sending_queue.empty():
                                 payload = self.protocol.sending_queue.get()
@@ -113,9 +117,14 @@ class JavaIPC:
         self.message_transfer_thread.start()
 
         self.ipc_tcp_server_thread = threading.Thread(target=self.start_tcp_server)
+        self.tcp_server_active = True
         self.ipc_tcp_server_thread.start()
 
     def stop_ipc_instance(self):
         self.listen_for_connections = False
         self.tcp_server_active = False
         self.protocol.stop()
+
+def create_connect_request_message(source_peer_id, target_peer_id, timeout):
+    return f'ConnectRequest,{source_peer_id},{target_peer_id},{timeout}'
+

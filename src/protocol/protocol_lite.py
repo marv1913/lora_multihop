@@ -8,7 +8,7 @@ import time
 from queue import Queue
 from contextlib import contextmanager
 
-from ipc import xml
+from ipc import java_ipc
 from protocol import consumer_producer
 from protocol.header import RegistrationHeader, ConnectRequestHeader
 from util import variables
@@ -329,7 +329,9 @@ class ProtocolLite:
                 self.connected_node = header_obj.source
                 # send connect request to java side
                 logging.debug("send connect request to java side")
-                self.sending_queue.put(xml.create_xml_from_connect_request_header(header_obj))
+                self.sending_queue.put(
+                    java_ipc.create_connect_request_message(header_obj.source_peer_id, header_obj.target_peer_id,
+                                                            header_obj.timeout))
             elif header_obj.next_node == variables.MY_ADDRESS:
                 logging.debug('forward connect request header')
                 route = self.routing_table.get_best_route_for_destination(header_obj.end_node)
