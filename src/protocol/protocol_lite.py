@@ -10,7 +10,7 @@ from contextlib import contextmanager
 
 from ipc import java_ipc
 from protocol import consumer_producer
-from protocol.header import RegistrationHeader, ConnectRequestHeader
+from protocol.header import RegistrationHeader, ConnectRequestHeader, DisconnectRequestHeader
 from util import variables
 from protocol import header
 from protocol.routing_table import RoutingTable
@@ -81,6 +81,8 @@ class ProtocolLite:
                             self.process_registration_header(header_obj)
                         elif header_obj.flag == header.ConnectRequestHeader.HEADER_TYPE:
                             self.process_connect_request_header(header_obj)
+                        elif header_obj.flag == header.DisconnectRequestHeader.HEADER_TYPE:
+                            self.process_disconnect_request_header(header_obj)
                 except ValueError as e:
                     logging.warning(str(e))
                     try:
@@ -340,17 +342,31 @@ class ProtocolLite:
                     logging.debug(f'could not forward connect request header, because there is no routing table entry '
                                   f'for destination address {header_obj.end_node}')
 
+    def process_disconnect_request_header(self, header_obj):
+        # TODO make sure same request is not forwarded multiple times
+        if header_obj.received_from != variables.MY_ADDRESS:
+            if header_obj.end_node == variables.MY_ADDRESS:
+                self.connected_node = header_obj.source
+                # send connect request to java side
+                logging.debug("send disconnect request to java side")
+                self.sending_queue.put(
+                    java_ipc.create_disconnect_request_message(header_obj.source_peer_id, header_obj.target_peer_id))
+            elif header_obj.next_node == variables.MY_ADDRESS:
+                logging.debug('forward disconnect request header')
+                route = self.routing_table.get_best_route_for_destination(header_obj.end_node)
+                if len(route) > 0:
+                    header_obj.next_node = route['next_node']
+                    header_obj.ttl -= 1
+                    self.send_header(header_obj.get_header_str())
+                else:
+                    logging.debug(f'could not forward connect request header, because there is no routing table entry '
+                                  f'for destination address {header_obj.end_node}')
+
     def send_connect_request_header(self, source_peer_id, target_peer_id, timeout_in_sec):
         # look for address of source peer id and check whether source peer is already registered
         # wait until timeout for ConnectRequestHeader of other HubConnector
-        if not self.routing_table.check_peer_is_already_registered(source_peer_id):
-            raise ValueError(f"source peer '{source_peer_id}' is not registered")
-        elif not self.routing_table.check_peer_is_already_registered(target_peer_id):
-            raise ValueError(f"target peer '{target_peer_id}' is not registered")
-        elif self.routing_table.get_address_of_peer(source_peer_id) != variables.MY_ADDRESS:
-            # TODO is source_peer always registered on own instance?
-            raise ValueError('source peer is not registered on this node')
-        elif not self.routing_table.check_connect_request_entry_already_exists(source_peer_id, target_peer_id):
+        self.check_peers(source_peer_id, target_peer_id)
+        if not self.routing_table.check_connect_request_entry_already_exists(source_peer_id, target_peer_id):
             self.routing_table.add_connect_request(source_peer_id, target_peer_id)
             end_node = self.routing_table.get_address_of_peer(target_peer_id)
             route = self.routing_table.get_best_route_for_destination(end_node)
@@ -365,6 +381,31 @@ class ProtocolLite:
             self.send_header(ConnectRequestHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, end_node,
                                                   route['next_node'], source_peer_id, target_peer_id,
                                                   timeout_in_sec).get_header_str())
+
+    def send_disconnect_request_header(self, source_peer_id, target_peer_id):
+        # look for address of source peer id and check whether source peer is already registered
+        # TODO wait until timeout for ConnectRequestHeader of other HubConnector
+        self.check_peers(source_peer_id, target_peer_id)
+        end_node = self.routing_table.get_address_of_peer(target_peer_id)
+        route = self.routing_table.get_best_route_for_destination(end_node)
+        if len(route) == 0:
+            logging.info(f'could not find a route to {end_node}. Sending route request...')
+            if self.send_route_request_message(end_node):
+                route = self.routing_table.get_best_route_for_destination(end_node)
+            else:
+                logging.info(f'Got no answer on route requested for end node: {end_node}')
+                return
+        self.send_header(DisconnectRequestHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, end_node,
+                                              route['next_node'], source_peer_id, target_peer_id).get_header_str())
+
+    def check_peers(self, source_peer_id, target_peer_id):
+        if not self.routing_table.check_peer_is_already_registered(source_peer_id):
+            raise ValueError(f"source peer '{source_peer_id}' is not registered")
+        elif not self.routing_table.check_peer_is_already_registered(target_peer_id):
+            raise ValueError(f"target peer '{target_peer_id}' is not registered")
+        elif self.routing_table.get_address_of_peer(source_peer_id) != variables.MY_ADDRESS:
+            # TODO is source_peer always registered on own instance?
+            raise ValueError('source peer is not registered on this node')
 
     def send_registration_message(self, subscribe, peer_id):
         if subscribe:

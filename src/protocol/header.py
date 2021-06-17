@@ -102,13 +102,18 @@ def create_header_obj_from_raw_message(raw_message):
         elif flag == ConnectRequestHeader.HEADER_TYPE:
             end_node = header_as_list[3]
             check_addr_field(end_node, 'end_node')
-
             next_node = header_as_list[4]
             check_addr_field(next_node, 'end_node')
             return ConnectRequestHeader(received_from, source, ttl, end_node, next_node, header_as_list[5],
                                         header_as_list[6], header_as_list[7])
-
-        raise ValueError("flag '{}' is not a valid flag".format(flag))
+        elif flag == DisconnectRequestHeader.HEADER_TYPE:
+            end_node = header_as_list[3]
+            check_addr_field(end_node, 'end_node')
+            next_node = header_as_list[4]
+            check_addr_field(next_node, 'end_node')
+            return DisconnectRequestHeader(received_from, source, ttl, end_node, next_node, header_as_list[5],
+                                        header_as_list[6])
+        raise ValueError(f"flag {flag} is not a valid flag")
     except IndexError:
         raise ValueError("header has an unexpected length")
 
@@ -292,6 +297,29 @@ class ConnectRequestHeader(Header):
     def get_header_str(self):
         return create_header_str(self.source, str(self.flag), str(self.ttl), self.end_node, self.next_node,
                                  self.source_peer_id, self.target_peer_id, self.timeout)
+
+
+class DisconnectRequestHeader(Header):
+    HEADER_TYPE = 8
+
+    def __init__(self, received_from, source, ttl, end_node, next_node, source_peer_id, target_peer_id):
+        super().__init__(received_from, source, self.HEADER_TYPE, ttl)
+        self.end_node = end_node
+        self.next_node = next_node
+        self.source_peer_id = source_peer_id
+        self.target_peer_id = target_peer_id
+
+    def __str__(self):
+        """
+        to string method to make obj human readable for debugging purposes
+        :return:
+        """
+        return self.source + " " + self.flag + " " + str(self.ttl) + " " + self.end_node + " " + self.next_node + \
+               " " + self.source_peer_id + " " + self.target_peer_id
+
+    def get_header_str(self):
+        return create_header_str(self.source, str(self.flag), str(self.ttl), self.end_node, self.next_node,
+                                 self.source_peer_id, self.target_peer_id)
 
 
 def create_header_str(*args):

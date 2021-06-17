@@ -95,6 +95,9 @@ class JavaIPC:
                                     elif message_type == 'ConnectRequest':
                                         self.protocol.send_connect_request_header(message_values[1], message_values[2],
                                                                                   message_values[3])
+                                    elif message_type == 'DisconnectRequest':
+                                        self.protocol.send_disconnect_request_header(message_values[1],
+                                                                                     message_values[2])
                         except socket.timeout:
                             while not self.protocol.sending_queue.empty():
                                 payload = self.protocol.sending_queue.get()
@@ -127,3 +130,7 @@ class JavaIPC:
 
 def create_connect_request_message(source_peer_id, target_peer_id, timeout):
     return f'ConnectRequest,{source_peer_id},{target_peer_id},{timeout}'
+
+
+def create_disconnect_request_message(source_peer_id, target_peer_id):
+    return f'DisconnectRequest,{source_peer_id},{target_peer_id}'
