@@ -19,7 +19,7 @@ jobs:
       run: |
         pip install pytest
         pip install pytest-cov
-        cd src && coverage run -m unittest discover
+        coverage run -m unittest discover src
         coverage xml
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v1
