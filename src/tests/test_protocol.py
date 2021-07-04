@@ -256,5 +256,65 @@ class ProtocolTest(unittest.TestCase):
             message = b'hello alice!'
             self.protocol.send_message(message)
             # verify route error was sent
-
             send_header_mocked.assert_called_with('|0130|5|5|alice|')
+
+    def test_send_route_request_message_good(self):
+        with patch.object(RoutingTable, 'get_best_route_for_destination',
+                          return_value={'destination': '0100', 'next_node': '0101'}), \
+                patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked:
+            self.assertTrue(self.protocol.send_route_request_message('0100'))
+            # verify route request was sent
+            send_header_mocked.assert_called_with('|0130|3|5|0|0100|')
+
+    def test_send_route_request_message_bad_no_answer(self):
+        with patch.object(RoutingTable, 'get_best_route_for_destination', return_value={}), \
+                patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked, \
+                patch.object(time, 'sleep'):
+            self.assertFalse(self.protocol.send_route_request_message('0100'))
+            # verify route request was sent
+            send_header_mocked.assert_called_with('|0130|3|5|0|0100|')
+
+    def test_process_route_request_good(self):
+        with patch.object(protocol_lite.ProtocolLite, 'send_route_reply') as send_route_reply_mocked:
+            route_request_header_obj = header.RouteRequestHeader('0131', '0130', 9, 1, '0133')
+            variables.MY_ADDRESS = '0133'
+            self.protocol.process_route_request(route_request_header_obj)
+            send_route_reply_mocked.assert_called_once()
+
+    def test_process_route_request_good_forwarding(self):
+        with patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked:
+            route_request_header_obj = header.RouteRequestHeader('0132', '0131', 9, 1, '0133')
+            variables.MY_ADDRESS = '0134'
+            self.protocol.process_route_request(route_request_header_obj)
+            send_header_mocked.assert_called_with('|0131|3|8|2|0133|')
+
+    def test_process_route_request_bad_already_forwarded(self):
+        with patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked, \
+        patch.object(RoutingTable, 'check_route_request_already_processed', return_value=True):
+            route_request_header_obj = header.RouteRequestHeader('0132', '0131', 9, 1, '0133')
+            variables.MY_ADDRESS = '0134'
+            self.protocol.process_route_request(route_request_header_obj)
+            send_header_mocked.assert_not_called()
+
+    def test_send_route_reply_header(self):
+        with patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked:
+            self.protocol.send_route_reply('0131', '0132')
+            send_header_mocked.assert_called_with('|0130|4|5|0|0132|0131|')
+
+    def test_process_message_header_good(self):
+        with patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked:
+            variables.MY_ADDRESS = '0134'
+            self.protocol.connected_node = '0130'
+            message_header_obj = header.MessageHeader('0131', '0130', 9, '0134', '0132', 1, 'hello')
+            self.protocol.process_message_header(message_header_obj)
+            send_header_mocked.assert_called_with('|0134|2|5|0130|1|')
+
+    def test_process_message_header_good_forward_request(self):
+        with patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked, \
+        patch.object(RoutingTable, 'get_best_route_for_destination',
+        return_value={'destination': '0132', 'next_node': '0133'}):
+            variables.MY_ADDRESS = '0134'
+            message_header_obj = header.MessageHeader('0131', '0130', 9, '0132', '0134', 1, 'hello')
+            self.protocol.process_message_header(message_header_obj)
+            send_header_mocked.assert_called_with('|0130|1|8|0132|0133|000001|hello|')
+
