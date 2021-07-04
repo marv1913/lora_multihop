@@ -254,6 +254,7 @@ class ProtocolTest(unittest.TestCase):
                 patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked, \
                 patch.object(time, 'sleep'):
             message = b'hello alice!'
+
             self.protocol.send_message(message)
             # verify route error was sent
             send_header_mocked.assert_called_with('|0130|5|5|alice|')
