@@ -3,7 +3,7 @@ import socket
 import threading
 
 from protocol import consumer_producer
-from protocol.protocol_lite import ProtocolLite
+from protocol import protocol_lite
 from util import variables
 
 
@@ -16,7 +16,7 @@ class JavaIPC:
             logging.info('loaded address of module: {}'.format(variables.MY_ADDRESS))
         else:
             variables.MY_ADDRESS = module_address
-        self.protocol = ProtocolLite()
+        self.protocol = protocol_lite.ProtocolLite()
         self.protocol.start_protocol_thread()
         self.connection = None
         self.ipc_port = ipc_port

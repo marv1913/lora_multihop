@@ -1,7 +1,8 @@
+import time
 import unittest
 from unittest.mock import patch, call, MagicMock
 
-from protocol import protocol_lite, header, consumer_producer
+from protocol import header, consumer_producer, protocol_lite
 from protocol.header import RegistrationHeader, ConnectRequestHeader
 from protocol.routing_table import RoutingTable
 from util import variables
@@ -211,3 +212,48 @@ class ProtocolTest(unittest.TestCase):
             self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
             self.protocol.process_incoming_message()
             add_unsupported_node_mocked.assert_not_called()
+
+    def test_send_message_good(self):
+        self.protocol.connected_node = 'alice'
+        with patch.object(RoutingTable, 'get_best_route_for_destination',
+                          return_value={'destination': '0100', 'next_node': '0101'}), \
+                patch.object(protocol_lite.ProtocolLite, 'add_message_to_waiting_acknowledgement_list'), \
+                patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked:
+            message = b'hello alice!'
+            self.protocol.send_message(message)
+            send_header_mocked.assert_called_with(f'|0130|1|5|alice|0101|000001|{message.hex()}|')
+
+    def test_send_message_edge_no_entry_in_routing_table(self):
+        self.protocol.connected_node = 'alice'
+        with patch.object(RoutingTable, 'get_best_route_for_destination') as get_best_route_mocked, \
+                patch.object(protocol_lite.ProtocolLite, 'add_message_to_waiting_acknowledgement_list'), \
+                patch.object(protocol_lite.ProtocolLite, 'send_route_request_message') as send_route_request_mocked, \
+                patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked:
+            message = b'hello alice!'
+            get_best_route_mocked.side_effect = [{}, {'destination': '0100', 'next_node': '0101'}]
+            self.protocol.send_message(message)
+            send_header_mocked.assert_called_with(f'|0130|1|5|alice|0101|000001|{message.hex()}|')
+            send_route_request_mocked.assert_called_once()
+
+    def test_send_message_bad_no_route_found(self):
+        self.protocol.connected_node = 'alice'
+        with patch.object(RoutingTable, 'get_best_route_for_destination', return_value={}), \
+                patch.object(protocol_lite.ProtocolLite, 'add_message_to_waiting_acknowledgement_list'), \
+                patch.object(protocol_lite.ProtocolLite, 'send_route_request_message',
+                             return_value=False) as send_route_request_mocked, \
+                patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked:
+            message = b'hello alice!'
+            self.protocol.send_message(message)
+            send_header_mocked.assert_not_called()
+            send_route_request_mocked.assert_called_once()
+
+    def test_send_message_bad_message_not_acknowledged(self):
+        self.protocol.connected_node = 'alice'
+        with patch.object(RoutingTable, 'get_best_route_for_destination',
+                          return_value={'destination': '0100', 'next_node': '0101'}), \
+                patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked, \
+                patch.object(time, 'sleep'):
+            message = b'hello alice!'
+            self.protocol.send_message(message)
+            # verify route error was sent
+            send_header_mocked.assert_called_with('|0130|5|5|alice|')
