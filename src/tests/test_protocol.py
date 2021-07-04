@@ -256,4 +256,5 @@ class ProtocolTest(unittest.TestCase):
             message = b'hello alice!'
             self.protocol.send_message(message)
             # verify route error was sent
+
             send_header_mocked.assert_called_with('|0130|5|5|alice|')
