@@ -164,7 +164,7 @@ class JavaIPCTest(unittest.TestCase):
 
             socket_mock.accept.return_value = connection_mock, ''
             connection_mock.recv.return_value = 'hello'
-            ipc.protocol.received_messages_queue.put(b'hello world'.hex())
+            ipc.protocol.received_messages_queue.put(b'hello world')
 
             ipc.start_tcp_server_for_message_transfer()
             connection_mock.send.assert_called_with(b'hello world')

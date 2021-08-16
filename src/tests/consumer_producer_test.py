@@ -14,7 +14,7 @@ class ConsumerProducerTest(unittest.TestCase):
 
     def test_verify_command_good(self):
         with patch.object(time, 'sleep', side_effect=InterruptedError):
-            consumer_producer.q.put(('AT', ['OK']))
+            consumer_producer.q.put((b'AT', ['OK']))
             self.ser.readline.return_value = consumer_producer.str_to_bytes('OK')
             try:
                 consumer_producer.ConsumerThread('test_receiving').run()
@@ -24,7 +24,7 @@ class ConsumerProducerTest(unittest.TestCase):
 
     def test_verify_command_bad(self):
         with patch.object(time, 'sleep', side_effect=InterruptedError):
-            consumer_producer.q.put(('AT', ['OK']))
+            consumer_producer.q.put((b'AT', ['OK']))
             self.ser.readline.side_effect = [consumer_producer.str_to_bytes('LR'), consumer_producer.str_to_bytes('OK')]
             try:
                 consumer_producer.ConsumerThread('test_receiving').run()
@@ -34,7 +34,7 @@ class ConsumerProducerTest(unittest.TestCase):
 
     def test_verify_command_bad2(self):
         with patch.object(time, 'sleep', side_effect=InterruptedError):
-            consumer_producer.q.put(('AT', ['SENDING', 'SENDED']))
+            consumer_producer.q.put((b'AT', ['SENDING', 'SENDED']))
             self.ser.readline.side_effect = [consumer_producer.str_to_bytes('SENDING'),
                                              consumer_producer.str_to_bytes('LR'),
                                              consumer_producer.str_to_bytes('SENDED')]
@@ -47,7 +47,7 @@ class ConsumerProducerTest(unittest.TestCase):
 
     def test_verify_command_bad_to_many_commands_expected_for_verification(self):
         with patch.object(time, 'sleep', side_effect=InterruptedError):
-            consumer_producer.q.put(('AT', ['SENDING', 'SENDED']))
+            consumer_producer.q.put((b'AT', ['SENDING', 'SENDED']))
             # '' would be returned from ser.readline if timeout is reached
             self.ser.readline.side_effect = [consumer_producer.str_to_bytes('SENDED'),
                                              consumer_producer.str_to_bytes('')]

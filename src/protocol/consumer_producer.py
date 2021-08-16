@@ -42,12 +42,8 @@ class ProducerThread(threading.Thread):
             if q.empty() and not WRITE_DATA:
                 if ser.in_waiting:
                     received_raw_message = ser.readline()
-                    logging.debug('received: {}'.format(received_raw_message))
-                    try:
-                        received_raw_message = bytes_to_str(received_raw_message)
-                        response_q.put(received_raw_message)
-                    except UnicodeDecodeError:
-                        logging.debug(f"message '{received_raw_message}' dumped. because it is not encoded in UTF-8")
+                    logging.debug(f'received: {received_raw_message}')
+                    response_q.put(received_raw_message)
 
 
 class ConsumerThread(threading.Thread):
@@ -64,10 +60,9 @@ class ConsumerThread(threading.Thread):
                 WRITE_DATA = True
                 command_tuple = q.get()
                 command = command_tuple[0]
-                command = command + '\r\n'
-                command = str_to_bytes(command)
+                command = command + b'\r\n'
                 verify_list = command_tuple[1]
-                logging.debug("sending command '{}'".format(command))
+                logging.debug(f"sending command '{command}'")
                 ser.write(command)
                 successful = True
                 if len(verify_list) > 0:

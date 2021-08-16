@@ -16,7 +16,7 @@ class ProtocolTest(unittest.TestCase):
 
     def test_get_best_route_for_destination_good(self):
         with patch.object(protocol_lite.ProtocolLite, 'send_header'):
-            raw_message = 'LR,0133,16,|0131|2|5|0133|99fc8d|'
+            raw_message = b'LR,0133,16,|0131|2|5|0133|99fc8d|'
             header_obj = header.create_header_obj_from_raw_message(raw_message)
             self.protocol.process_ack_header(header_obj)
             self.assertEqual('|0131|2|4|0133|99fc8d|', header_obj.get_header_str())
@@ -120,8 +120,8 @@ class ProtocolTest(unittest.TestCase):
             consumer_producer.status_q.put(True)
 
             self.protocol.send_header('test')
-            self.assertEqual(('AT+SEND=4', ['AT,OK']), consumer_producer.q.get())
-            self.assertEqual(('test', ['AT,SENDING', 'AT,SENDED']), consumer_producer.q.get())
+            self.assertEqual((b'AT+SEND=4', ['AT,OK']), consumer_producer.q.get())
+            self.assertEqual((b'test', ['AT,SENDING', 'AT,SENDED']), consumer_producer.q.get())
             wait_random_time_mocked.assert_called_once()
 
     def test_send_header_bad_access_send_mode_false(self):
@@ -129,14 +129,14 @@ class ProtocolTest(unittest.TestCase):
             consumer_producer.status_q.put(False)
 
             self.protocol.send_header('test')
-            self.assertEqual(('AT+SEND=4', ['AT,OK']), consumer_producer.q.get())
+            self.assertEqual((b'AT+SEND=4', ['AT,OK']), consumer_producer.q.get())
             self.assertTrue(consumer_producer.q.empty())
             wait_random_time_mocked.assert_called_once()
 
     def test_process_incoming_route_request(self):
         with patch.object(RoutingTable, 'add_neighbor_to_routing_table') as add_neighbor_mocked, \
                 patch.object(protocol_lite.ProtocolLite, 'process_route_request') as process_route_request_mocked:
-            consumer_producer.response_q.put('LR,0136,10,|0137|3|8|4|0138|')
+            consumer_producer.response_q.put(b'LR,0136,10,|0137|3|8|4|0138|')
             self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
             self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
             self.protocol.process_incoming_message()
@@ -146,7 +146,7 @@ class ProtocolTest(unittest.TestCase):
     def test_process_incoming_message_header(self):
         with patch.object(RoutingTable, 'add_neighbor_to_routing_table'), \
                 patch.object(protocol_lite.ProtocolLite, 'process_message_header') as process_message_header_mocked:
-            consumer_producer.response_q.put('LR,0136,10,|0135|1|3|0138|0137|000001|hello|')
+            consumer_producer.response_q.put(b'LR,0136,10,|0135|1|3|0138|0137|000001|hello|')
             self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
             self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
             self.protocol.process_incoming_message()
@@ -155,7 +155,7 @@ class ProtocolTest(unittest.TestCase):
     def test_process_incoming_route_reply_header(self):
         with patch.object(RoutingTable, 'add_neighbor_to_routing_table'), \
                 patch.object(protocol_lite.ProtocolLite, 'process_route_reply_header') as process_route_reply_mocked:
-            consumer_producer.response_q.put('LR,0136,10,|0137|4|8|3|0139|0140|')
+            consumer_producer.response_q.put(b'LR,0136,10,|0137|4|8|3|0139|0140|')
             self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
             self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
             self.protocol.process_incoming_message()
@@ -164,7 +164,7 @@ class ProtocolTest(unittest.TestCase):
     def test_process_incoming_route_error_header(self):
         with patch.object(RoutingTable, 'add_neighbor_to_routing_table'), \
                 patch.object(protocol_lite.ProtocolLite, 'process_route_error_header') as process_route_error_mocked:
-            consumer_producer.response_q.put('LR,0131,10,|0131|5|4|0132|')
+            consumer_producer.response_q.put(b'LR,0131,10,|0131|5|4|0132|')
             self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
             self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
             self.protocol.process_incoming_message()
@@ -173,7 +173,7 @@ class ProtocolTest(unittest.TestCase):
     def test_process_incoming_message_ack_header(self):
         with patch.object(RoutingTable, 'add_neighbor_to_routing_table'), \
                 patch.object(protocol_lite.ProtocolLite, 'process_ack_header') as process_ack_header_mocked:
-            consumer_producer.response_q.put('LR,0137,16,|0137|2|5|0138|8774d3|')
+            consumer_producer.response_q.put(b'LR,0137,16,|0137|2|5|0138|8774d3|')
             self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
             self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
             self.protocol.process_incoming_message()
@@ -182,7 +182,7 @@ class ProtocolTest(unittest.TestCase):
     def test_process_incoming_registration_header(self):
         with patch.object(RoutingTable, 'add_neighbor_to_routing_table'), \
                 patch.object(protocol_lite.ProtocolLite, 'process_registration_header') as process_registration_mocked:
-            consumer_producer.response_q.put('LR,0131,10,|0131|6|4|true|test|')
+            consumer_producer.response_q.put(b'LR,0131,10,|0131|6|4|true|test|')
             self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
             self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
             self.protocol.process_incoming_message()
@@ -191,7 +191,7 @@ class ProtocolTest(unittest.TestCase):
     def test_process_incoming_connect_request_header(self):
         with patch.object(RoutingTable, 'add_neighbor_to_routing_table'), \
                 patch.object(protocol_lite.ProtocolLite, 'process_connect_request_header') as connect_request_mocked:
-            consumer_producer.response_q.put('LR,0131,10,|0131|7|4|0132|0132|alice|bob|60|')
+            consumer_producer.response_q.put(b'LR,0131,10,|0131|7|4|0132|0132|alice|bob|60|')
             self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
             self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
             self.protocol.process_incoming_message()
@@ -199,7 +199,7 @@ class ProtocolTest(unittest.TestCase):
 
     def test_process_incoming_message_bad_invalid_format(self):
         with patch.object(RoutingTable, 'add_neighbor_with_unsupported_protocol') as add_unsupported_node_mocked:
-            consumer_producer.response_q.put('LR,0200,10,invalid message')
+            consumer_producer.response_q.put(b'LR,0200,10,invalid message')
             self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
             self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
             self.protocol.process_incoming_message()
@@ -207,7 +207,7 @@ class ProtocolTest(unittest.TestCase):
 
     def test_process_incoming_message_bad_invalid_format_without_source_address(self):
         with patch.object(RoutingTable, 'add_neighbor_with_unsupported_protocol') as add_unsupported_node_mocked:
-            consumer_producer.response_q.put('invalid message')
+            consumer_producer.response_q.put(b'invalid message')
             self.protocol.PROCESS_INCOMING_MESSAGES = MagicMock()
             self.protocol.PROCESS_INCOMING_MESSAGES.__bool__.side_effect = [True, False]
             self.protocol.process_incoming_message()
@@ -218,21 +218,21 @@ class ProtocolTest(unittest.TestCase):
         with patch.object(RoutingTable, 'get_best_route_for_destination',
                           return_value={'destination': '0100', 'next_node': '0101'}), \
                 patch.object(protocol_lite.ProtocolLite, 'add_message_to_waiting_acknowledgement_list'), \
-                patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked:
+                patch.object(protocol_lite.ProtocolLite, 'send_header_as_bytes') as send_header_mocked:
             message = b'hello alice!'
             self.protocol.send_message(message)
-            send_header_mocked.assert_called_with(f'|0130|1|5|alice|0101|000001|{message.hex()}|')
+            send_header_mocked.assert_called_with(b'|0130|1|5|alice|0101|000001|' + message + b'|')
 
     def test_send_message_edge_no_entry_in_routing_table(self):
         self.protocol.connected_node = 'alice'
         with patch.object(RoutingTable, 'get_best_route_for_destination') as get_best_route_mocked, \
                 patch.object(protocol_lite.ProtocolLite, 'add_message_to_waiting_acknowledgement_list'), \
                 patch.object(protocol_lite.ProtocolLite, 'send_route_request_message') as send_route_request_mocked, \
-                patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked:
+                patch.object(protocol_lite.ProtocolLite, 'send_header_as_bytes') as send_header_mocked:
             message = b'hello alice!'
             get_best_route_mocked.side_effect = [{}, {'destination': '0100', 'next_node': '0101'}]
             self.protocol.send_message(message)
-            send_header_mocked.assert_called_with(f'|0130|1|5|alice|0101|000001|{message.hex()}|')
+            send_header_mocked.assert_called_with(b'|0130|1|5|alice|0101|000001|' + message + b'|')
             send_route_request_mocked.assert_called_once()
 
     def test_send_message_bad_no_route_found(self):
@@ -241,7 +241,7 @@ class ProtocolTest(unittest.TestCase):
                 patch.object(protocol_lite.ProtocolLite, 'add_message_to_waiting_acknowledgement_list'), \
                 patch.object(protocol_lite.ProtocolLite, 'send_route_request_message',
                              return_value=False) as send_route_request_mocked, \
-                patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked:
+                patch.object(protocol_lite.ProtocolLite, 'send_header_as_bytes') as send_header_mocked:
             message = b'hello alice!'
             self.protocol.send_message(message)
             send_header_mocked.assert_not_called()
@@ -251,12 +251,12 @@ class ProtocolTest(unittest.TestCase):
         self.protocol.connected_node = 'alice'
         with patch.object(RoutingTable, 'get_best_route_for_destination',
                           return_value={'destination': '0100', 'next_node': '0101'}), \
-                patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked, \
+                patch.object(protocol_lite.ProtocolLite, 'send_header_as_bytes') as send_header_mocked, \
                 patch.object(time, 'sleep'):
             message = b'hello alice!'
             self.protocol.send_message(message)
             # verify route error was sent
-            send_header_mocked.assert_called_with('|0130|5|5|alice|')
+            send_header_mocked.assert_called_with(b'|0130|5|5|alice|')
 
     def test_send_route_request_message_good(self):
         with patch.object(RoutingTable, 'get_best_route_for_destination',
@@ -290,7 +290,7 @@ class ProtocolTest(unittest.TestCase):
 
     def test_process_route_request_bad_already_forwarded(self):
         with patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked, \
-        patch.object(RoutingTable, 'check_route_request_already_processed', return_value=True):
+                patch.object(RoutingTable, 'check_route_request_already_processed', return_value=True):
             route_request_header_obj = header.RouteRequestHeader('0132', '0131', 9, 1, '0133')
             variables.MY_ADDRESS = '0134'
             self.protocol.process_route_request(route_request_header_obj)
@@ -310,11 +310,10 @@ class ProtocolTest(unittest.TestCase):
             send_header_mocked.assert_called_with('|0134|2|5|0130|1|')
 
     def test_process_message_header_good_forward_request(self):
-        with patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked, \
-        patch.object(RoutingTable, 'get_best_route_for_destination',
-        return_value={'destination': '0132', 'next_node': '0133'}):
+        with patch.object(protocol_lite.ProtocolLite, 'send_header_as_bytes') as send_header_mocked, \
+                patch.object(RoutingTable, 'get_best_route_for_destination',
+                             return_value={'destination': '0132', 'next_node': '0133'}):
             variables.MY_ADDRESS = '0134'
-            message_header_obj = header.MessageHeader('0131', '0130', 9, '0132', '0134', 1, 'hello')
+            message_header_obj = header.MessageHeader('0131', '0130', 9, '0132', '0134', 1, b'hello')
             self.protocol.process_message_header(message_header_obj)
-            send_header_mocked.assert_called_with('|0130|1|8|0132|0133|000001|hello|')
-
+            send_header_mocked.assert_called_with(b'|0130|1|8|0132|0133|000001|hello|')

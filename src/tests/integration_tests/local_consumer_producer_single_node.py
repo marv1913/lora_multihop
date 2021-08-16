@@ -45,14 +45,13 @@ class LocalConsumerProducer:
                 data = connection.recv(1024)
                 if data:
                     print(f'data: {data}')
-                    data = data.decode()
                     consumer_producer.response_q.put(data)
             except socket.error:
                 time.sleep(0.5)
             while not consumer_producer.q.empty():
                 payload = consumer_producer.q.get()[0]
-                if 'AT' not in payload:
-                    connection.sendall(consumer_producer.str_to_bytes(f'LR,{self.module_address},10,' + payload))
+                if b'AT' not in payload:
+                    connection.sendall(consumer_producer.str_to_bytes(f'LR,{self.module_address},10,') + payload)
                 consumer_producer.status_q.put(True)
 
     def stop_local_consumer_producer(self):

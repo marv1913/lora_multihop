@@ -46,14 +46,22 @@ class ProtocolLite:
         sends a string to LoRa network
         @param header_str: message to send
         """
+        self.send_header_as_bytes(consumer_producer.str_to_bytes(header_str))
+
+    def send_header_as_bytes(self, header_in_bytes):
+        """
+        send bytes message to LoRa network
+        :param header_in_bytes: payload
+        """
         wait_random_time()
-        consumer_producer.q.put(('AT+SEND={}'.format(str(len(header_str))), ['AT,OK']))
+        length = str(len(header_in_bytes))
+        consumer_producer.q.put((b'AT+SEND=' + consumer_producer.str_to_bytes(length), ['AT,OK']))
         if consumer_producer.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
-            consumer_producer.q.put((header_str, ['AT,SENDING', 'AT,SENDED']))
+            consumer_producer.q.put((header_in_bytes, ['AT,SENDING', 'AT,SENDED']))
             if consumer_producer.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
-                logging.debug("sent header '{}'.".format(header_str))
+                logging.debug(f"sent header '{header_in_bytes}'.")
                 return
-        logging.debug("could not send header '{}', because got invalid status from lora module".format(header_str))
+        logging.debug(f"could not send header '{header_in_bytes}', because got invalid status from lora module")
 
     def process_incoming_message(self):
         """
@@ -86,7 +94,7 @@ class ProtocolLite:
                     logging.warning(str(e))
                     try:
                         logging.debug('try to add received signal to unsupported devices list...')
-                        addr = header.get_received_from_value(raw_message)
+                        addr = header.get_received_from_value(consumer_producer.bytes_to_str(raw_message))
                         self.routing_table.add_neighbor_with_unsupported_protocol(addr)
                     except ValueError as e:
                         logging.warning(str(e))
@@ -109,13 +117,13 @@ class ProtocolLite:
                     return
             self.message_counter += 1
             header_obj = header.MessageHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, destination,
-                                              best_route['next_node'], self.message_counter, payload.hex())
+                                              best_route['next_node'], self.message_counter, payload)
             attempt = 0
             self.add_message_to_waiting_acknowledgement_list(header_obj)
             message_confirmed = False
             while attempt < 3 and not message_confirmed:
                 logging.debug(f'attempt: {attempt}')
-                self.send_header(header_obj.get_header_str())
+                self.send_header_as_bytes(header_obj.get_header_in_bytes())
                 attempt_count_received_ack = 0
                 while attempt_count_received_ack < 10:
                     if header_obj.message_id not in self.MESSAGES_ACKNOWLEDGMENT:
@@ -235,7 +243,7 @@ class ProtocolLite:
                 logging.info('forwarding message from {source} to {destination} over hop {next_node}'.format(
                     source=header_obj.source, destination=header_obj.destination, next_node=header_obj.next_node))
                 header_obj.ttl = header_obj.ttl - 1
-                self.send_header(header_obj.get_header_str())
+                self.send_header_as_bytes(header_obj.get_header_in_bytes())
         else:
             logging.debug('ignoring message: {}'.format(str(header_obj)))
 

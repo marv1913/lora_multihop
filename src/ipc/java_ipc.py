@@ -47,8 +47,7 @@ class JavaIPC:
             except socket.error:
                 pass
             if not self.protocol.received_messages_queue.empty():
-                received_message = self.protocol.received_messages_queue.get()
-                message = bytes.fromhex(received_message)
+                message = self.protocol.received_messages_queue.get()
                 logging.debug(f'send message via rpc to java side: {message}')
                 conn.send(message)
 
