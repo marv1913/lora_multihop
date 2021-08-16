@@ -68,8 +68,8 @@ class LocalConsumerProducer:
         while self.tcp_communication_running:
             while not consumer_producer.q.empty():
                 payload = consumer_producer.q.get()[0]
-                if 'AT' not in payload:
-                    message_to_send = consumer_producer.str_to_bytes(f'LR,{self.module_address},10,' + payload)
+                if b'AT' not in payload:
+                    message_to_send = consumer_producer.str_to_bytes(f'LR,{self.module_address},10,') + payload
                     for connection in self.connection_list:
                         connection.send(message_to_send)
                 consumer_producer.status_q.put(True)

@@ -49,6 +49,10 @@ class ProtocolLite:
         self.send_header_as_bytes(consumer_producer.str_to_bytes(header_str))
 
     def send_header_as_bytes(self, header_in_bytes):
+        """
+        send bytes message to LoRa network
+        :param header_in_bytes: payload
+        """
         wait_random_time()
         length = str(len(header_in_bytes))
         consumer_producer.q.put((b'AT+SEND=' + consumer_producer.str_to_bytes(length), ['AT,OK']))
