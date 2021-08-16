@@ -59,7 +59,6 @@ class LocalConsumerProducer:
                 data = connection.recv(1024)
                 if data:
                     print(f'data: {data}')
-                    data = data.decode()
                     consumer_producer.response_q.put(data)
             except socket.error:
                 time.sleep(0.2)
