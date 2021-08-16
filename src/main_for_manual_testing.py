@@ -22,7 +22,12 @@ def reset_module():
 
 
 if __name__ == '__main__':
-    msg_as_bytes = 'LR,10,|0100|hällo|'.encode()
-    print(msg_as_bytes)
-    print(msg_as_bytes.hex())
-    print(b'LR,10,|0100|h\xc3\xa4llo|'.decode())
+    logging.basicConfig()
+    logging.getLogger().setLevel(logging.DEBUG)
+
+    ser = serial.serial_for_url('/dev/ttyS0', baudrate=115200, timeout=20)
+
+    # module_config.config_module()
+    consumer_producer.start_send_receive_threads(ser)
+    protocol = ProtocolLite()
+    protocol.send_message('test')

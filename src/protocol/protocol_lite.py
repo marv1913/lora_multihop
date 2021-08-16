@@ -73,7 +73,7 @@ class ProtocolLite:
                         if header_obj.flag == header.RouteRequestHeader.HEADER_TYPE:
                             self.process_route_request(header_obj)
                         elif header_obj.flag == header.MessageHeader.HEADER_TYPE:
-                            self.process_message_header(raw_message)
+                            self.process_message_header(header_obj)
                         elif header_obj.flag == header.RouteReplyHeader.HEADER_TYPE:
                             self.process_route_reply_header(header_obj)
                         elif header_obj.flag == header.RouteErrorHeader.HEADER_TYPE:
@@ -103,6 +103,7 @@ class ProtocolLite:
         if self.connected_node is not None:
             destination = self.connected_node
             best_route = self.routing_table.get_best_route_for_destination(destination)
+            print('here')
             if len(best_route) == 0:
                 logging.info(
                     'could not find a route to {}. Sending route request...'.format(destination))

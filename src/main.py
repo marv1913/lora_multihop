@@ -35,7 +35,7 @@ if __name__ == '__main__':
     module_config.set_address('0202')
     time.sleep(2)
 
-    java_ipc = JavaIPC(ipc_port=6000, message_port=6100)#
+    java_ipc = JavaIPC(ipc_port=6000, message_port=6100)
     java_ipc.tcp_server_active = True
     java_ipc.start_tcp_server()
 
