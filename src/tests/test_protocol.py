@@ -310,10 +310,10 @@ class ProtocolTest(unittest.TestCase):
             send_header_mocked.assert_called_with('|0134|2|5|0130|1|')
 
     def test_process_message_header_good_forward_request(self):
-        with patch.object(protocol_lite.ProtocolLite, 'send_header') as send_header_mocked, \
+        with patch.object(protocol_lite.ProtocolLite, 'send_header_as_bytes') as send_header_mocked, \
                 patch.object(RoutingTable, 'get_best_route_for_destination',
                              return_value={'destination': '0132', 'next_node': '0133'}):
             variables.MY_ADDRESS = '0134'
-            message_header_obj = header.MessageHeader('0131', '0130', 9, '0132', '0134', 1, 'hello')
+            message_header_obj = header.MessageHeader('0131', '0130', 9, '0132', '0134', 1, b'hello')
             self.protocol.process_message_header(message_header_obj)
-            send_header_mocked.assert_called_with('|0130|1|8|0132|0133|000001|hello|')
+            send_header_mocked.assert_called_with(b'|0130|1|8|0132|0133|000001|hello|')
