@@ -243,7 +243,7 @@ class ProtocolLite:
                 logging.info('forwarding message from {source} to {destination} over hop {next_node}'.format(
                     source=header_obj.source, destination=header_obj.destination, next_node=header_obj.next_node))
                 header_obj.ttl = header_obj.ttl - 1
-                self.send_header(header_obj.get_header_str())
+                self.send_header_as_bytes(header_obj.get_header_in_bytes())
         else:
             logging.debug('ignoring message: {}'.format(str(header_obj)))
 
