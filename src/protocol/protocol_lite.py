@@ -103,7 +103,6 @@ class ProtocolLite:
         if self.connected_node is not None:
             destination = self.connected_node
             best_route = self.routing_table.get_best_route_for_destination(destination)
-            print('here')
             if len(best_route) == 0:
                 logging.info(
                     'could not find a route to {}. Sending route request...'.format(destination))
