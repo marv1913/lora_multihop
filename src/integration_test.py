@@ -2,8 +2,9 @@ import logging
 import os
 
 from lora_multihop.java_ipc import JavaIPC
-from tests.integration_tests.local_consumer_producer import LocalConsumerProducer
+
 from lora_multihop import variables
+from tests.integration_tests.local_consumer_producer import LocalConsumerProducer
 
 if __name__ == '__main__':
     variables.MAX_SLEEP_TIME = 0.2
