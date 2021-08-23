@@ -2,7 +2,7 @@ import logging
 import os
 
 from lora_multihop.java_ipc import JavaIPC
-from tests import LocalConsumerProducer
+from tests.integration_tests.local_consumer_producer import LocalConsumerProducer
 from lora_multihop import variables
 
 if __name__ == '__main__':
