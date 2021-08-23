@@ -3,7 +3,7 @@ import queue
 import time
 import logging
 
-from util import variables
+from lora_multihop import variables
 
 __author__ = "Marvin Rausch"
 

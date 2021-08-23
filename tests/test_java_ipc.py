@@ -7,8 +7,7 @@ import socket
 
 from unittest.mock import patch, MagicMock
 
-from ipc import java_ipc
-from protocol import protocol_lite
+from lora_multihop import java_ipc, protocol_lite
 
 
 class JavaIPCTest(unittest.TestCase):

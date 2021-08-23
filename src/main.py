@@ -3,10 +3,8 @@ import time
 
 import serial
 
-from ipc.java_ipc import JavaIPC
-from protocol import consumer_producer
-from protocol.protocol_lite import ProtocolLite
-from util import module_config
+from lora_multihop.java_ipc import JavaIPC
+from lora_multihop import consumer_producer, module_config
 
 
 def reset_module():

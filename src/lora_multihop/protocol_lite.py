@@ -7,12 +7,9 @@ import time
 from queue import Queue
 from contextlib import contextmanager
 
-from ipc import java_ipc
-from protocol import consumer_producer
-from protocol.header import RegistrationHeader, ConnectRequestHeader, DisconnectRequestHeader
-from util import variables
-from protocol import header
-from protocol.routing_table import RoutingTable
+from lora_multihop import java_ipc, consumer_producer, header, variables
+from lora_multihop.header import RegistrationHeader, ConnectRequestHeader, DisconnectRequestHeader
+from lora_multihop.routing_table import RoutingTable
 
 __author__ = "Marvin Rausch"
 
@@ -70,6 +67,7 @@ class ProtocolLite:
         while self.PROCESS_INCOMING_MESSAGES:
             if not consumer_producer.response_q.empty() and not self.PAUSE_PROCESSING_INCOMING_MESSAGES:
                 raw_message = consumer_producer.response_q.get()
+                print(f'process: {raw_message}')
                 try:
                     header_obj = header.create_header_obj_from_raw_message(raw_message)
                     if header_obj.ttl > 1:
@@ -403,7 +401,7 @@ class ProtocolLite:
                 logging.info(f'Got no answer on route requested for end node: {end_node}')
                 return
         self.send_header(DisconnectRequestHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, end_node,
-                                              route['next_node'], source_peer_id, target_peer_id).get_header_str())
+                                                 route['next_node'], source_peer_id, target_peer_id).get_header_str())
 
     def check_peers(self, source_peer_id, target_peer_id):
         if not self.routing_table.check_peer_is_already_registered(source_peer_id):

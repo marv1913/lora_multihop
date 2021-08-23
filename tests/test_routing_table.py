@@ -6,8 +6,8 @@ import time
 
 from unittest.mock import patch
 
-from protocol import header
-from protocol.routing_table import RoutingTable
+from lora_multihop import header
+from lora_multihop.routing_table import RoutingTable
 
 
 class RoutingTableTest(unittest.TestCase):

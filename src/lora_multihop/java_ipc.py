@@ -2,9 +2,7 @@ import logging
 import socket
 import threading
 
-from protocol import consumer_producer
-from protocol import protocol_lite
-from util import variables
+from lora_multihop import protocol_lite, consumer_producer, variables
 
 
 class JavaIPC:

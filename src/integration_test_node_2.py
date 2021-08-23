@@ -1,11 +1,12 @@
 import logging
 
-from ipc.java_ipc import JavaIPC
-from tests.integration_tests.local_consumer_producer_single_node import LocalConsumerProducer
-from util import variables
+from lora_multihop.java_ipc import JavaIPC
+from tests.integration_tests.local_consumer_producer import LocalConsumerProducer
+
+from lora_multihop import variables
 
 if __name__ == '__main__':
-    variables.MAX_SLEEP_TIME = 0.2
+    variables.MAX_SLEEP_TIME = 0
     logging.basicConfig()
     logging.getLogger().setLevel(logging.DEBUG)
     module_address = '0201'

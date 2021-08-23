@@ -1,10 +1,9 @@
-import logging
 import socket
 import threading
 import time
 from queue import Queue
 
-from protocol import consumer_producer
+from lora_multihop import consumer_producer
 
 
 class LocalConsumerProducer:

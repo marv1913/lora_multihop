@@ -1,7 +1,6 @@
 import logging
 
-from protocol import consumer_producer
-from util import variables
+from lora_multihop import consumer_producer, variables
 
 
 def config_module(configuration=variables.MODULE_CONFIG):

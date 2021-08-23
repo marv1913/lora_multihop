@@ -2,10 +2,9 @@ import time
 import unittest
 from unittest.mock import patch, call, MagicMock
 
-from protocol import header, consumer_producer, protocol_lite
-from protocol.header import RegistrationHeader, ConnectRequestHeader
-from protocol.routing_table import RoutingTable
-from util import variables
+from lora_multihop import protocol_lite, consumer_producer, header, variables
+from lora_multihop.header import RegistrationHeader, ConnectRequestHeader
+from lora_multihop.routing_table import RoutingTable
 
 
 class ProtocolTest(unittest.TestCase):

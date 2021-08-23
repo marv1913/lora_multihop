@@ -2,7 +2,7 @@ import copy
 import logging
 import time
 
-from util import variables
+from lora_multihop import variables
 
 __author__ = "Marvin Rausch"
 

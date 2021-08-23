@@ -1,10 +1,9 @@
-import logging
 import socket
 import threading
 import time
 from queue import Queue
 
-from protocol import consumer_producer
+from lora_multihop import consumer_producer
 
 
 class LocalConsumerProducer:
@@ -42,7 +41,7 @@ class LocalConsumerProducer:
     def start_sending_receiving(self, connection):
         while self.tcp_communication_running:
             try:
-                data = connection.recv(1024)
+                data = connection.recv(2048)
                 if data:
                     print(f'data: {data}')
                     consumer_producer.response_q.put(data)

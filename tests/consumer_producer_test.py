@@ -1,7 +1,7 @@
 import time
 import unittest
 from unittest.mock import patch, MagicMock
-from protocol import consumer_producer
+from lora_multihop import consumer_producer
 
 __author__ = "Marvin Rausch"
 

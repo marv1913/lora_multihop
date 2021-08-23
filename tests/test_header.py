@@ -1,10 +1,8 @@
 import unittest
 
-from protocol import header
+from lora_multihop import header
 
 __author__ = "Marvin Rausch"
-
-from util import variables
 
 
 class HeaderTest(unittest.TestCase):

@@ -1,12 +1,9 @@
 import logging
-import time
 
 import serial
 
-from ipc.java_ipc import JavaIPC
-from protocol import consumer_producer
-from protocol.protocol_lite import ProtocolLite
-from util import variables
+from lora_multihop import consumer_producer
+from lora_multihop.protocol_lite import ProtocolLite
 
 
 def reset_module():

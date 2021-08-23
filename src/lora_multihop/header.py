@@ -1,5 +1,4 @@
-from util import variables
-from protocol import consumer_producer
+from lora_multihop import consumer_producer, variables
 
 __author__ = "Marvin Rausch"
 
