@@ -1,13 +1,15 @@
+import base64
 import hashlib
 import logging
 import random
 import signal
 import threading
 import time
+import traceback
 from queue import Queue
 from contextlib import contextmanager
 
-from lora_multihop import java_ipc, consumer_producer, header, variables
+from lora_multihop import java_ipc, serial_connection, header, variables
 from lora_multihop.header import RegistrationHeader, ConnectRequestHeader, DisconnectRequestHeader
 from lora_multihop.routing_table import RoutingTable
 
@@ -43,31 +45,23 @@ class ProtocolLite:
         sends a string to LoRa network
         @param header_str: message to send
         """
-        self.send_header_as_bytes(consumer_producer.str_to_bytes(header_str))
-
-    def send_header_as_bytes(self, header_in_bytes):
-        """
-        send bytes message to LoRa network
-        :param header_in_bytes: payload
-        """
         wait_random_time()
-        length = str(len(header_in_bytes))
-        consumer_producer.q.put((b'AT+SEND=' + consumer_producer.str_to_bytes(length), ['AT,OK']))
-        if consumer_producer.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
-            consumer_producer.q.put((header_in_bytes, ['AT,SENDING', 'AT,SENDED']))
-            if consumer_producer.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
-                logging.debug(f"sent header '{header_in_bytes}'.")
+        serial_connection.writing_q.put(('AT+SEND={}'.format(str(len(header_str))), ['AT,OK']))
+        if serial_connection.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
+            serial_connection.writing_q.put((header_str, ['AT,SENDING', 'AT,SENDED']))
+            if serial_connection.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
+                logging.debug("sent header '{}'.".format(header_str))
                 return
-        logging.debug(f"could not send header '{header_in_bytes}', because got invalid status from lora module")
+        logging.debug("could not send header '{}', because got invalid status from lora module".format(header_str))
 
     def process_incoming_message(self):
         """
         get messages from LoRa module, create header object and call appropriate method to process the received message
         """
         while self.PROCESS_INCOMING_MESSAGES:
-            if not consumer_producer.response_q.empty() and not self.PAUSE_PROCESSING_INCOMING_MESSAGES:
-                raw_message = consumer_producer.response_q.get()
-                print(f'process: {raw_message}')
+            if not serial_connection.response_q.empty() and not self.PAUSE_PROCESSING_INCOMING_MESSAGES:
+                raw_message = serial_connection.response_q.get()
+                logging.debug(f'process: {raw_message}')
                 try:
                     header_obj = header.create_header_obj_from_raw_message(raw_message)
                     if header_obj.ttl > 1:
@@ -90,9 +84,10 @@ class ProtocolLite:
                             self.process_disconnect_request_header(header_obj)
                 except ValueError as e:
                     logging.warning(str(e))
+                    traceback.print_exc()
                     try:
                         logging.debug('try to add received signal to unsupported devices list...')
-                        addr = header.get_received_from_value(consumer_producer.bytes_to_str(raw_message))
+                        addr = header.get_received_from_value(raw_message)
                         self.routing_table.add_neighbor_with_unsupported_protocol(addr)
                     except ValueError as e:
                         logging.warning(str(e))
@@ -106,8 +101,7 @@ class ProtocolLite:
             destination = self.connected_node
             best_route = self.routing_table.get_best_route_for_destination(destination)
             if len(best_route) == 0:
-                logging.info(
-                    'could not find a route to {}. Sending route request...'.format(destination))
+                logging.info('could not find a route to {}. Sending route request...'.format(destination))
                 if self.send_route_request_message(destination):
                     best_route = self.routing_table.get_best_route_for_destination(destination)
                 else:
@@ -115,13 +109,14 @@ class ProtocolLite:
                     return
             self.message_counter += 1
             header_obj = header.MessageHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, destination,
-                                              best_route['next_node'], self.message_counter, payload)
+                                              best_route['next_node'], self.message_counter,
+                                              base64.b64encode(payload).decode(variables.ENCODING))
             attempt = 0
             self.add_message_to_waiting_acknowledgement_list(header_obj)
             message_confirmed = False
             while attempt < 3 and not message_confirmed:
                 logging.debug(f'attempt: {attempt}')
-                self.send_header_as_bytes(header_obj.get_header_in_bytes())
+                self.send_header(header_obj.get_header_str())
                 attempt_count_received_ack = 0
                 while attempt_count_received_ack < 10:
                     if header_obj.message_id not in self.MESSAGES_ACKNOWLEDGMENT:
@@ -226,7 +221,8 @@ class ProtocolLite:
             if self.routing_table.check_message_already_received(header_obj.source, header_obj.message_id):
                 self.send_header(ack_header_str)
             else:
-                self.received_messages_queue.put(header_obj.payload)
+                logging.debug(f'payload: {str(header_obj.payload)}')
+                self.received_messages_queue.put(base64.b64decode(header_obj.payload))
                 # send acknowledge message
                 logging.debug('sending acknowledgement')
                 self.send_header(ack_header_str)
@@ -234,14 +230,13 @@ class ProtocolLite:
         elif header_obj.next_node == variables.MY_ADDRESS and header_obj.destination != variables.MY_ADDRESS:
             best_route = self.routing_table.get_best_route_for_destination(header_obj.destination)
             if len(best_route) == 0:
-                logging.info(
-                    'no routing table entry for {} to forward message found'.format(header_obj.next_node))
+                logging.info('no routing table entry for {} to forward message found'.format(header_obj.next_node))
             else:
                 header_obj.next_node = best_route['next_node']
                 logging.info('forwarding message from {source} to {destination} over hop {next_node}'.format(
                     source=header_obj.source, destination=header_obj.destination, next_node=header_obj.next_node))
                 header_obj.ttl = header_obj.ttl - 1
-                self.send_header_as_bytes(header_obj.get_header_in_bytes())
+                self.send_header(header_obj.get_header_str())
         else:
             logging.debug('ignoring message: {}'.format(str(header_obj)))
 
@@ -446,8 +441,8 @@ class ProtocolLite:
 
     def stop(self):
         self.PROCESS_INCOMING_MESSAGES = False
-        consumer_producer.CONSUMER_THREAD_ACTIVE = False
-        consumer_producer.PRODUCER_THREAD_ACTIVE = False
+        serial_connection.CONSUMER_THREAD_ACTIVE = False
+        serial_connection.PRODUCER_THREAD_ACTIVE = False
 
     def add_message_to_waiting_acknowledgement_list(self, message_header_obj):
         message_id = message_header_obj.message_id
@@ -496,9 +491,3 @@ def calculate_ack_id(address, payload):
     hash_object = hashlib.md5(bytes(address + payload, variables.ENCODING))
     return hash_object.hexdigest()[:6]
 
-
-class ConnectRequest:
-
-    def __init__(self, source_peer_id, target_peer_id):
-        self.source_peer_id = source_peer_id
-        self.target_peer_id = target_peer_id

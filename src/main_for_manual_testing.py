@@ -2,7 +2,7 @@ import logging
 
 import serial
 
-from lora_multihop import consumer_producer
+from lora_multihop import serial_connection
 from lora_multihop.protocol_lite import ProtocolLite
 
 
@@ -25,6 +25,6 @@ if __name__ == '__main__':
     ser = serial.serial_for_url('/dev/ttyS0', baudrate=115200, timeout=20)
 
     # module_config.config_module()
-    consumer_producer.start_send_receive_threads(ser)
+    serial_connection.start_send_receive_threads(ser)
     protocol = ProtocolLite()
     protocol.send_message('test')

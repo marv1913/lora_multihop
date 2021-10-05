@@ -1,4 +1,4 @@
-from lora_multihop import consumer_producer, variables
+from lora_multihop import serial_connection, variables
 
 __author__ = "Marvin Rausch"
 
@@ -10,32 +10,35 @@ EXPECTED_VALUE_COUNT_MESSAGE_HEADER = 6
 class Header:
 
     def __init__(self, received_from, source, flag, ttl):
-        # address of node where the message comes from (LR,{addr},...)
+        """
+        constructor of Header class
+        :param received_from: address of node where the message comes from (LR,{addr},...) - last forwarding
+        :param source:
+        :param flag: int which defines header type
+        :param ttl: time to live
+        """
         self.received_from = received_from
         self.source = source
         self.flag = flag
         self.ttl = int(ttl)
 
 
-def create_message_header_obj(header_in_bytes):
-    return MessageHeader(consumer_producer.bytes_to_str(header_in_bytes[3:7]), consumer_producer.bytes_to_str(header_in_bytes[12:16]), consumer_producer.bytes_to_str(header_in_bytes[19:20]), consumer_producer.bytes_to_str(header_in_bytes[21:25]),
-                         consumer_producer.bytes_to_str(header_in_bytes[26:30]), consumer_producer.bytes_to_str(header_in_bytes[31:37]), header_in_bytes[38:len(header_in_bytes) - 1])
+def create_message_header_obj(received_from, header_str):
+    payload = header_str[20:len(header_str) - 1]
+    if len(payload) == 0:
+        raise ValueError('payload missing')
+    return MessageHeader(received_from, header_str[1:5], header_str[8:9], header_str[10:14], header_str[15:19],
+                         header_str[20:26], header_str[27:len(header_str) - 1])
 
 
 def create_header_obj_from_raw_message(raw_message):
     """
     creates a header object of appropriate header type from raw message
-    :param raw_message: raw message from LoRa module as bytes
+    :param raw_message: raw message from LoRa module as string
     :return: header object (type of header obj depends on flag in raw message)
     """
     try:
-        flag = consumer_producer.bytes_to_str(raw_message[17:18])
-        check_int_field(flag)
-        flag = int(flag)
-        if flag == MessageHeader.HEADER_TYPE:
-            return create_message_header_obj(raw_message)
-        raw_message_as_str = consumer_producer.bytes_to_str(raw_message)
-        raw_message_as_list = raw_message_as_str.split(variables.LORA_MODULE_DELIMITER, maxsplit=3)
+        raw_message_as_list = raw_message.split(variables.LORA_MODULE_DELIMITER, maxsplit=3)
 
         received_from = raw_message_as_list[1]
         check_addr_field(received_from, 'received_from')
@@ -59,14 +62,16 @@ def create_header_obj_from_raw_message(raw_message):
         check_int_field(ttl)
         ttl = int(ttl)
 
-        if flag == MessageAcknowledgeHeader.HEADER_TYPE:
+        if flag == MessageHeader.HEADER_TYPE or flag == MessageAcknowledgeHeader.HEADER_TYPE:
             destination = header_as_list[3]
             if destination not in variables.AVAILABLE_NODES:
                 raise ValueError(
                     "unknown destination: {destination} \n available destinations are {available_destinations}".format(
                         destination=destination, available_destinations=str(variables.AVAILABLE_NODES)))
-            return MessageAcknowledgeHeader(received_from, source, ttl, destination, header_as_list[4])
-
+            if flag == MessageAcknowledgeHeader.HEADER_TYPE:
+                return MessageAcknowledgeHeader(received_from, source, ttl, destination, header_as_list[4])
+            else:
+                return create_message_header_obj(received_from, header_str)
         elif flag == RouteRequestHeader.HEADER_TYPE or flag == RouteReplyHeader.HEADER_TYPE:
             # it is a route request or a route reply header
             hops = header_as_list[3]
@@ -113,7 +118,7 @@ def create_header_obj_from_raw_message(raw_message):
             next_node = header_as_list[4]
             check_addr_field(next_node, 'end_node')
             return DisconnectRequestHeader(received_from, source, ttl, end_node, next_node, header_as_list[5],
-                                        header_as_list[6])
+                                           header_as_list[6])
         raise ValueError(f"flag {flag} is not a valid flag")
     except IndexError:
         raise ValueError("header has an unexpected length")
@@ -230,12 +235,6 @@ class MessageHeader(Header):
     def get_header_str(self):
         return create_header_str(self.source, str(self.flag), str(self.ttl), self.destination, self.next_node,
                                  f'{self.message_id:06d}', self.payload)
-
-    def get_header_in_bytes(self):
-        return b'|' + consumer_producer.str_to_bytes(self.source) + b'|' + consumer_producer.str_to_bytes(str(self.flag)) + b'|' + \
-               consumer_producer.str_to_bytes(str(self.ttl)) + b'|' + consumer_producer.str_to_bytes(self.destination) + b'|' + \
-               consumer_producer.str_to_bytes(self.next_node) + b'|' + \
-               consumer_producer.str_to_bytes(f'{self.message_id:06d}') + b'|' + self.payload + b'|'
 
 
 class RouteErrorHeader(Header):

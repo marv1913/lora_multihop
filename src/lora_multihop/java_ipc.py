@@ -2,7 +2,7 @@ import logging
 import socket
 import threading
 
-from lora_multihop import protocol_lite, consumer_producer, variables
+from lora_multihop import protocol_lite, serial_connection, variables, module_config
 
 
 class JavaIPC:
@@ -10,7 +10,7 @@ class JavaIPC:
     def __init__(self, ipc_port, message_port, module_address=None):
         self.listen_for_connections = True
         if module_address is None:
-            variables.MY_ADDRESS = consumer_producer.get_current_address_from_module()
+            variables.MY_ADDRESS = module_config.get_current_address()
             logging.info('loaded address of module: {}'.format(variables.MY_ADDRESS))
         else:
             variables.MY_ADDRESS = module_address
@@ -34,7 +34,7 @@ class JavaIPC:
 
         while self.listen_for_connections:
             try:
-                data = conn.recv(1024)
+                data = conn.recv(220)
                 print(f'data: {data}')
                 if len(data) > 0:
                     self.protocol.send_message(data)

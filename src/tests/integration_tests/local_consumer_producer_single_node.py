@@ -3,7 +3,7 @@ import threading
 import time
 from queue import Queue
 
-from lora_multihop import consumer_producer
+from lora_multihop import serial_connection
 
 
 class LocalConsumerProducer:
@@ -44,14 +44,14 @@ class LocalConsumerProducer:
                 data = connection.recv(2048)
                 if data:
                     print(f'data: {data}')
-                    consumer_producer.response_q.put(data)
+                    serial_connection.response_q.put(data.decode())
             except socket.error:
                 time.sleep(0.5)
-            while not consumer_producer.q.empty():
-                payload = consumer_producer.q.get()[0]
-                if b'AT' not in payload:
-                    connection.sendall(consumer_producer.str_to_bytes(f'LR,{self.module_address},10,') + payload)
-                consumer_producer.status_q.put(True)
+            while not serial_connection.writing_q.empty():
+                payload = serial_connection.writing_q.get()[0]
+                if 'AT' not in payload:
+                    connection.sendall(serial_connection.str_to_bytes(f'LR,{self.module_address},10,'+ payload))
+                serial_connection.status_q.put(True)
 
     def stop_local_consumer_producer(self):
         self.tcp_communication_running = False
