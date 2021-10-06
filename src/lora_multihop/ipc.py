@@ -5,10 +5,10 @@ import threading
 from lora_multihop import protocol_lite, serial_connection, variables, module_config
 
 
-class JavaIPC:
+class IPC:
 
     def __init__(self, ipc_port, message_port, module_address=None):
-        self.listen_for_connections = True
+        self.listen_for_data = True
         if module_address is None:
             variables.MY_ADDRESS = module_config.get_current_address()
             logging.info('loaded address of module: {}'.format(variables.MY_ADDRESS))
@@ -32,7 +32,7 @@ class JavaIPC:
         print('client for message transfer connected')
         conn.setblocking(False)
 
-        while self.listen_for_connections:
+        while self.listen_for_data:
             try:
                 data = conn.recv(220)
                 print(f'data: {data}')
@@ -54,7 +54,7 @@ class JavaIPC:
         s.bind(("", self.ipc_port))
         s.listen(1)
         try:
-            while self.listen_for_connections:
+            while self.listen_for_data:
                 try:
                     s.settimeout(2)
                     conn, addr = s.accept()
@@ -120,7 +120,7 @@ class JavaIPC:
         self.ipc_tcp_server_thread.start()
 
     def stop_ipc_instance(self):
-        self.listen_for_connections = False
+        self.listen_for_data = False
         self.tcp_server_active = False
         self.protocol.stop()
 

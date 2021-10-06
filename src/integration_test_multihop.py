@@ -1,7 +1,7 @@
 import logging
 import os
 
-from lora_multihop.ipc import JavaIPC
+from lora_multihop.ipc import IPC
 from tests.integration_tests.local_consumer_producer import LocalConsumerProducer
 from lora_multihop import variables
 
@@ -19,6 +19,6 @@ if __name__ == '__main__':
         is_server = True
 
     read_write.start_send_receive_threads(is_server=is_server)
-    java_ipc = JavaIPC(ipc_port=int(os.getenv('IPC_PORT')), message_port=int(os.getenv('MESSAGE_PORT')),
-                       module_address=module_address)
+    java_ipc = IPC(ipc_port=int(os.getenv('IPC_PORT')), message_port=int(os.getenv('MESSAGE_PORT')),
+                   module_address=module_address)
     java_ipc.start_ipc()
