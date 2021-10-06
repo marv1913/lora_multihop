@@ -1,7 +1,7 @@
 import logging
 import os
 
-from lora_multihop.java_ipc import JavaIPC
+from lora_multihop.ipc import JavaIPC
 from tests.integration_tests.local_consumer_producer import LocalConsumerProducer
 from lora_multihop import variables
 

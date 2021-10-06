@@ -9,7 +9,7 @@ import traceback
 from queue import Queue
 from contextlib import contextmanager
 
-from lora_multihop import java_ipc, serial_connection, header, variables
+from lora_multihop import ipc, serial_connection, header, variables
 from lora_multihop.header import RegistrationHeader, ConnectRequestHeader, DisconnectRequestHeader
 from lora_multihop.routing_table import RoutingTable
 
@@ -329,8 +329,8 @@ class ProtocolLite:
                 # send connect request to java side
                 logging.debug("send connect request to java side")
                 self.sending_queue.put(
-                    java_ipc.create_connect_request_message(header_obj.source_peer_id, header_obj.target_peer_id,
-                                                            header_obj.timeout))
+                    ipc.create_connect_request_message(header_obj.source_peer_id, header_obj.target_peer_id,
+                                                       header_obj.timeout))
             elif header_obj.next_node == variables.MY_ADDRESS:
                 logging.debug('forward connect request header')
                 route = self.routing_table.get_best_route_for_destination(header_obj.end_node)
@@ -350,7 +350,7 @@ class ProtocolLite:
                 # send connect request to java side
                 logging.debug("send disconnect request to java side")
                 self.sending_queue.put(
-                    java_ipc.create_disconnect_request_message(header_obj.source_peer_id, header_obj.target_peer_id))
+                    ipc.create_disconnect_request_message(header_obj.source_peer_id, header_obj.target_peer_id))
             elif header_obj.next_node == variables.MY_ADDRESS:
                 logging.debug('forward disconnect request header')
                 route = self.routing_table.get_best_route_for_destination(header_obj.end_node)
