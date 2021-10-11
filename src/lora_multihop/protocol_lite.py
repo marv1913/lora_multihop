@@ -441,8 +441,8 @@ class ProtocolLite:
 
     def stop(self):
         self.PROCESS_INCOMING_MESSAGES = False
-        serial_connection.CONSUMER_THREAD_ACTIVE = False
-        serial_connection.PRODUCER_THREAD_ACTIVE = False
+        serial_connection.WRITING_THREAD_ACTIVE = False
+        serial_connection.READING_THREAD_ACTIVE = False
 
     def add_message_to_waiting_acknowledgement_list(self, message_header_obj):
         message_id = message_header_obj.message_id

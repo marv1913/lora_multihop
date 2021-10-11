@@ -18,8 +18,8 @@ response_q = queue.Queue(BUF_SIZE)
 BUF_SIZE = 1000
 status_q = queue.Queue(BUF_SIZE)
 WRITE_DATA = False
-PRODUCER_THREAD_ACTIVE = True
-CONSUMER_THREAD_ACTIVE = True
+READING_THREAD_ACTIVE = True
+WRITING_THREAD_ACTIVE = True
 
 
 def bytes_to_str(message_in_bytes):
@@ -36,8 +36,8 @@ class ReadingThread(threading.Thread):
         self.name = name
 
     def run(self):
-        global PRODUCER_THREAD_ACTIVE
-        while PRODUCER_THREAD_ACTIVE:
+        global READING_THREAD_ACTIVE
+        while READING_THREAD_ACTIVE:
             global WRITE_DATA
             if writing_q.empty() and not WRITE_DATA:
                 if ser.in_waiting:
@@ -57,8 +57,8 @@ class WritingThread(threading.Thread):
         return
 
     def run(self):
-        global CONSUMER_THREAD_ACTIVE
-        while CONSUMER_THREAD_ACTIVE:
+        global WRITING_THREAD_ACTIVE
+        while WRITING_THREAD_ACTIVE:
             if not writing_q.empty():
                 global WRITE_DATA
                 WRITE_DATA = True
