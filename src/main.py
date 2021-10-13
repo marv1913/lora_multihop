@@ -5,7 +5,7 @@ import time
 import serial
 
 from lora_multihop.ipc import IPC
-from lora_multihop import serial_connection, module_config, protocol_lite
+from lora_multihop import serial_connection, module_config, protocol
 
 
 def reset_module():

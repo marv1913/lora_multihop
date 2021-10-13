@@ -2,7 +2,7 @@ import logging
 import socket
 import threading
 
-from lora_multihop import protocol_lite, serial_connection, variables, module_config
+from lora_multihop import protocol, variables, module_config
 
 
 class IPC:
@@ -14,7 +14,7 @@ class IPC:
             logging.info('loaded address of module: {}'.format(variables.MY_ADDRESS))
         else:
             variables.MY_ADDRESS = module_address
-        self.protocol = protocol_lite.ProtocolLite()
+        self.protocol = protocol.Protocol()
         self.protocol.start_protocol_thread()
         self.connection = None
         self.ipc_port = ipc_port
@@ -25,6 +25,10 @@ class IPC:
         self.ipc_tcp_server_thread = None
 
     def start_tcp_server_for_message_transfer(self):
+        """
+        starts a loop for sending and receiving data; received messages from tcp socket are sent over LoRa network;
+        received message from LoRa network are sent to TCP client which is connected to socket of ipc.py
+        """
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.bind(("", self.message_port))
         s.listen(1)
@@ -50,6 +54,10 @@ class IPC:
                 conn.send(message)
 
     def start_tcp_server(self):
+        """
+        start loop which processes received commands to control routing protocol;
+        requests (e.g. connect request) received from LoRa network are forwarded to connected application
+        """
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.bind(("", self.ipc_port))
         s.listen(1)
@@ -112,6 +120,10 @@ class IPC:
             s.close()
 
     def start_ipc(self):
+        """
+        starts a thread to exchange messages between connected application and LoRa network; starts a second thread
+        which receives control commands for routing protocol and forwards requests to connected application
+        """
         self.message_transfer_thread = threading.Thread(target=self.start_tcp_server_for_message_transfer)
         self.message_transfer_thread.start()
 
@@ -120,14 +132,30 @@ class IPC:
         self.ipc_tcp_server_thread.start()
 
     def stop_ipc_instance(self):
+        """
+        stops threads for message exchange and command processing
+        """
         self.listen_for_data = False
         self.tcp_server_active = False
         self.protocol.stop()
 
 
 def create_connect_request_message(source_peer_id, target_peer_id, timeout):
+    """
+    creates a connect request message
+    :param source_peer_id: peer id of source peer
+    :param target_peer_id: peer id of target peer
+    :param timeout: timeout in seconds
+    :return: connect request message as string (formatted like defined in protocol)
+    """
     return f'ConnectRequest,{source_peer_id},{target_peer_id},{timeout}'
 
 
 def create_disconnect_request_message(source_peer_id, target_peer_id):
+    """
+    creates a disconnect request message
+    :param source_peer_id: peer id of source peer
+    :param target_peer_id: peer id of target peer
+    :return: disconnect request message as string (formatted like defined in protocol)
+    """
     return f'DisconnectRequest,{source_peer_id},{target_peer_id}'

@@ -1,5 +1,4 @@
 import base64
-import hashlib
 import logging
 import random
 import signal
@@ -16,7 +15,7 @@ from lora_multihop.routing_table import RoutingTable
 __author__ = "Marvin Rausch"
 
 
-class ProtocolLite:
+class Protocol:
     PROCESS_INCOMING_MESSAGES = True
     VERIFICATION_TIMEOUT = 25
     PAUSE_PROCESSING_INCOMING_MESSAGES = False
@@ -265,13 +264,6 @@ class ProtocolLite:
                 header_obj.hops = header_obj.hops + 1
                 header_obj.ttl = header_obj.ttl - 1
                 self.send_header(header_obj.get_header_str())
-            else:
-                # send route error, because there is no route to forward route reply message to
-                # source node of route request
-                logging.info(
-                    'can not forward route reply message, because there is no route to forward route reply message to')
-                # source node of route request')
-                # self.send_route_error(header_obj.source)
 
     def process_route_error_header(self, header_obj):
         """
@@ -294,7 +286,7 @@ class ProtocolLite:
         @param header_obj: message acknowledgement header object
         """
         if header_obj.destination == variables.MY_ADDRESS:
-            self.edit_message_acknowledgment_list(header_obj)
+            self.delete_from_ack_list(header_obj.message_id)
         header_obj.ttl -= 1
         logging.debug('forward ack message')
         if header_obj.destination != variables.MY_ADDRESS:
@@ -303,12 +295,12 @@ class ProtocolLite:
             logging.debug(f'do not forward ack message, because end node was my address')
 
     def process_registration_header(self, header_obj):
+        """
+        processes registration message header
+        :param header_obj: object of class RegistrationMessageHeader
+        """
         if header_obj.source != variables.MY_ADDRESS:
             header_obj.ttl -= 1
-            # TODO check whether this code could be used
-            # if self.routing_table.check_registration_message_already_processed(header_obj.source):
-            #     logging.debug('registration message already has been processed')
-            # else:
             self.routing_table.add_address_to_processed_registration_messages_list(header_obj.source)
             if header_obj.subscribe:
                 logging.debug('registered new peer')
@@ -322,7 +314,10 @@ class ProtocolLite:
             self.received_own_registration_message = True
 
     def process_connect_request_header(self, header_obj):
-        # TODO make sure same request is not forwarded multiple times
+        """
+        processes connect request header
+        :param header_obj: object of class ConnectRequestHeader
+        """
         if header_obj.received_from != variables.MY_ADDRESS:
             if header_obj.end_node == variables.MY_ADDRESS:
                 self.connected_node = header_obj.source
@@ -343,7 +338,10 @@ class ProtocolLite:
                                   f'for destination address {header_obj.end_node}')
 
     def process_disconnect_request_header(self, header_obj):
-        # TODO make sure same request is not forwarded multiple times
+        """
+        processes disconnect request header
+        :param header_obj: object of class DisconnectRequestHeader
+        """
         if header_obj.received_from != variables.MY_ADDRESS:
             if header_obj.end_node == variables.MY_ADDRESS:
                 self.connected_node = header_obj.source
@@ -363,6 +361,12 @@ class ProtocolLite:
                                   f'for destination address {header_obj.end_node}')
 
     def send_connect_request_header(self, source_peer_id, target_peer_id, timeout_in_sec):
+        """
+        sends connect request
+        :param source_peer_id: peer id of source peer
+        :param target_peer_id: peer id of target peer
+        :param timeout_in_sec: timeout in seconds
+        """
         # look for address of source peer id and check whether source peer is already registered
         # wait until timeout for ConnectRequestHeader of other HubConnector
         self.check_peers(source_peer_id, target_peer_id)
@@ -383,8 +387,11 @@ class ProtocolLite:
                                                   timeout_in_sec).get_header_str())
 
     def send_disconnect_request_header(self, source_peer_id, target_peer_id):
-        # look for address of source peer id and check whether source peer is already registered
-        # TODO wait until timeout for ConnectRequestHeader of other HubConnector
+        """
+        sends disconnect request
+        :param source_peer_id: peer id of source peer
+        :param target_peer_id: peer id of target peer
+        """
         self.check_peers(source_peer_id, target_peer_id)
         end_node = self.routing_table.get_address_of_peer(target_peer_id)
         route = self.routing_table.get_best_route_for_destination(end_node)
@@ -399,15 +406,24 @@ class ProtocolLite:
                                                  route['next_node'], source_peer_id, target_peer_id).get_header_str())
 
     def check_peers(self, source_peer_id, target_peer_id):
+        """
+        helper function to check whether peers are already registered; raises ValueError if peer is not registered
+        :param source_peer_id: peer id of source peer
+        :param target_peer_id: peer id of target peer
+        """
         if not self.routing_table.check_peer_is_already_registered(source_peer_id):
             raise ValueError(f"source peer '{source_peer_id}' is not registered")
         elif not self.routing_table.check_peer_is_already_registered(target_peer_id):
             raise ValueError(f"target peer '{target_peer_id}' is not registered")
         elif self.routing_table.get_address_of_peer(source_peer_id) != variables.MY_ADDRESS:
-            # TODO is source_peer always registered on own instance?
             raise ValueError('source peer is not registered on this node')
 
     def send_registration_message(self, subscribe, peer_id):
+        """
+        function to registers/unregister a peer
+        :param subscribe: if True peer will be registered on network; else the peer will be unregistered
+        :param peer_id: id of peer
+        """
         if subscribe:
             self.routing_table.add_peer(peer_id, variables.MY_ADDRESS)
         else:
@@ -431,29 +447,32 @@ class ProtocolLite:
             if received_own_request:
                 return
 
-    def send_route_error(self, end_node):
-        route_error_header_obj = header.RouteErrorHeader(None, variables.MY_ADDRESS, 9, end_node)
-        self.send_header(route_error_header_obj.get_header_str())
-
-    def send_message_acknowledgement(self, source, destination, payload):
-        ack_header_obj = header.MessageAcknowledgeHeader(None, destination, 9, calculate_ack_id(source, payload))
-        self.send_header(ack_header_obj.get_header_str())
-
     def stop(self):
+        """
+        function to shutdown background threads:
+
+        thread for reading from serial port
+        thread for writing to serial port
+        thread for processing received header messages
+        """
         self.PROCESS_INCOMING_MESSAGES = False
         serial_connection.WRITING_THREAD_ACTIVE = False
         serial_connection.READING_THREAD_ACTIVE = False
 
     def add_message_to_waiting_acknowledgement_list(self, message_header_obj):
+        """
+        adds the message id of a message to the list of pending acknowledgements
+        :param message_header_obj: message as object of class MessageHeader
+        """
         message_id = message_header_obj.message_id
         logging.debug(f"adding '{message_id}' to ack list")
         self.MESSAGES_ACKNOWLEDGMENT.append(message_id)
-        return
-
-    def edit_message_acknowledgment_list(self, message_ack_header_obj):
-        self.delete_from_ack_list(message_ack_header_obj.message_id)
 
     def delete_from_ack_list(self, ack_id):
+        """
+        remove message id from list of pending acknowledgements
+        :param ack_id: message id which should be deleted
+        """
         logging.debug(f'remove {ack_id} from ack list')
         try:
             self.MESSAGES_ACKNOWLEDGMENT.remove(int(ack_id))
@@ -463,6 +482,11 @@ class ProtocolLite:
 
 @contextmanager
 def timeout(time_in_sec):
+    """
+    could be used as context manager to run code snippet until a custom timeout; calls raise_timeout function after
+    timeout
+    :param time_in_sec: specifies timeout in seconds
+    """
     # Register a function to raise a TimeoutError on the signal.
     signal.signal(signal.SIGALRM, raise_timeout)
     # Schedule the signal to be sent after ``time``.
@@ -478,16 +502,17 @@ def timeout(time_in_sec):
 
 
 def raise_timeout(signum, frame):
+    """
+    raises TimeoutError; is called by timeout context manager; to change timeout behavior edit code in this function
+    """
     raise TimeoutError
 
 
 def wait_random_time():
+    """
+    sleep for a random time; timespan is between 0 and variables.MAX_SLEEP_TIME seconds
+    """
     sleep_time = random.uniform(0, variables.MAX_SLEEP_TIME)
     logging.debug('waiting {} seconds before sending'.format(sleep_time))
     time.sleep(sleep_time)
-
-
-def calculate_ack_id(address, payload):
-    hash_object = hashlib.md5(bytes(address + payload, variables.ENCODING))
-    return hash_object.hexdigest()[:6]
 

@@ -23,10 +23,20 @@ WRITING_THREAD_ACTIVE = True
 
 
 def bytes_to_str(message_in_bytes):
+    """
+    converts bytes to string
+    :param message_in_bytes: bytes which should be convert
+    :return: decoded bytes as string using decoding defined under variables.ENCODING
+    """
     return message_in_bytes.decode(variables.ENCODING)
 
 
 def str_to_bytes(string_to_convert):
+    """
+    encodes string to bytes
+    :param string_to_convert: string which should be encoded
+    :return: encoded string as bytes using encoding defined under variables.ENCODING
+    """
     return bytes(string_to_convert, variables.ENCODING)
 
 
@@ -36,6 +46,9 @@ class ReadingThread(threading.Thread):
         self.name = name
 
     def run(self):
+        """
+        starts a thread for reading messages from serial port
+        """
         global READING_THREAD_ACTIVE
         while READING_THREAD_ACTIVE:
             global WRITE_DATA
@@ -57,6 +70,9 @@ class WritingThread(threading.Thread):
         return
 
     def run(self):
+        """
+        starts a thread for writing messages to a serial port
+        """
         global WRITING_THREAD_ACTIVE
         while WRITING_THREAD_ACTIVE:
             if not writing_q.empty():
@@ -92,6 +108,10 @@ class WritingThread(threading.Thread):
 
 
 def start_send_receive_threads(serial_conn):
+    """
+    starts threads for communication with serial port
+    :param serial_conn: object for serial connection from pyserial library
+    """
     global ser
     ser = serial_conn
     t1 = ReadingThread(name='producer')
@@ -103,26 +123,13 @@ def start_send_receive_threads(serial_conn):
     time.sleep(0.5)
 
 
-def config_module(configuration=variables.MODULE_CONFIG):
-    configuration = configuration + '\r\n'
-    if execute_command(configuration, [variables.STATUS_OK]):
-        logging.debug('module config successfully set')
-        return True
-    logging.warning("could not set module config")
-    return False
-
-
-def get_current_address_from_module():
-    execute_command(variables.GET_ADDR)
-    addr = response_q.get(variables.COMMAND_VERIFICATION_TIMEOUT)
-    print(addr)
-    addr_as_list = addr.split(variables.LORA_MODULE_DELIMITER)
-    if addr_as_list[0].strip() != 'AT' or addr_as_list[2].strip() != 'OK':
-        raise ValueError('could not get address of module')
-    return addr_as_list[1]
-
-
 def execute_command(command_as_str, verification_list=None):
+    """
+    helper function to send AT-command to serial port
+    :param command_as_str: command which should be sent
+    :param verification_list: list of expected results; can also be empty if result of command should not be verified
+    :return: True if expected results equal to results received from serial port, else False
+    """
     if verification_list is None:
         verification_list = []
     writing_q.put((command_as_str, verification_list))

@@ -7,7 +7,7 @@ import socket
 
 from unittest.mock import patch, MagicMock
 
-from lora_multihop import protocol_lite, ipc
+from lora_multihop import protocol, ipc
 
 
 class JavaIPCTest(unittest.TestCase):
@@ -19,7 +19,7 @@ class JavaIPCTest(unittest.TestCase):
         socket_mock = MagicMock()
         connection_mock = MagicMock()
         with patch.object(socket, 'socket', return_value=socket_mock), \
-                patch.object(protocol_lite.ProtocolLite, 'start_protocol_thread'):
+                patch.object(protocol.Protocol, 'start_protocol_thread'):
             test_ipc = ipc.IPC(4711, 4712, module_address='0200')
             test_ipc.listen_for_data = MagicMock()
             test_ipc.listen_for_data.__bool__.side_effect = [True, False]
@@ -37,8 +37,8 @@ class JavaIPCTest(unittest.TestCase):
         socket_mock = MagicMock()
         connection_mock = MagicMock()
         with patch.object(socket, 'socket', return_value=socket_mock), \
-                patch.object(protocol_lite.ProtocolLite, 'start_protocol_thread'), \
-                patch.object(protocol_lite.ProtocolLite,
+                patch.object(protocol.Protocol, 'start_protocol_thread'), \
+                patch.object(protocol.Protocol,
                              'send_registration_message') as send_registration_message_mocked:
             test_ipc = ipc.IPC(4711, 4712, module_address='0200')
             test_ipc.listen_for_data = MagicMock()
@@ -57,8 +57,8 @@ class JavaIPCTest(unittest.TestCase):
         socket_mock = MagicMock()
         connection_mock = MagicMock()
         with patch.object(socket, 'socket', return_value=socket_mock), \
-                patch.object(protocol_lite.ProtocolLite, 'start_protocol_thread'), \
-                patch.object(protocol_lite.ProtocolLite, 'send_connect_request_header') as send_connect_request_mocked:
+                patch.object(protocol.Protocol, 'start_protocol_thread'), \
+                patch.object(protocol.Protocol, 'send_connect_request_header') as send_connect_request_mocked:
             test_ipc = ipc.IPC(4711, 4712, module_address='0200')
             test_ipc.listen_for_data = MagicMock()
             test_ipc.listen_for_data.__bool__.side_effect = [True, False]
@@ -76,7 +76,7 @@ class JavaIPCTest(unittest.TestCase):
         socket_mock = MagicMock()
         connection_mock = MagicMock()
         with patch.object(socket, 'socket', return_value=socket_mock), \
-                patch.object(protocol_lite.ProtocolLite, 'start_protocol_thread'):
+                patch.object(protocol.Protocol, 'start_protocol_thread'):
             test_ipc = ipc.IPC(4711, 4712, module_address='0200')
             test_ipc.listen_for_data = MagicMock()
             test_ipc.listen_for_data.__bool__.side_effect = [True, False]
@@ -94,7 +94,7 @@ class JavaIPCTest(unittest.TestCase):
     def test_process_registration_message_bad_socket_timeout(self):
         socket_mock = MagicMock()
         with patch.object(socket, 'socket', return_value=socket_mock), \
-                patch.object(protocol_lite.ProtocolLite, 'start_protocol_thread'):
+                patch.object(protocol.Protocol, 'start_protocol_thread'):
             test_ipc = ipc.IPC(4711, 4712, module_address='0200')
             test_ipc.listen_for_data = MagicMock()
             test_ipc.listen_for_data.__bool__.side_effect = [True, False]
@@ -107,7 +107,7 @@ class JavaIPCTest(unittest.TestCase):
     def test_process_registration_message_bad_connection_reset_error(self):
         socket_mock = MagicMock()
         with patch.object(socket, 'socket', return_value=socket_mock), \
-                patch.object(protocol_lite.ProtocolLite, 'start_protocol_thread'):
+                patch.object(protocol.Protocol, 'start_protocol_thread'):
             test_ipc = ipc.IPC(4711, 4712, module_address='0200')
             test_ipc.listen_for_data = MagicMock()
             test_ipc.listen_for_data.__bool__.side_effect = [True, False]
@@ -121,7 +121,7 @@ class JavaIPCTest(unittest.TestCase):
         socket_mock = MagicMock()
         connection_mock = MagicMock()
         with patch.object(socket, 'socket', return_value=socket_mock), \
-                patch.object(protocol_lite.ProtocolLite, 'start_protocol_thread'):
+                patch.object(protocol.Protocol, 'start_protocol_thread'):
             test_ipc = ipc.IPC(4711, 4712, module_address='0200')
             test_ipc.listen_for_data = MagicMock()
             test_ipc.listen_for_data.__bool__.side_effect = [True, False]
@@ -139,8 +139,8 @@ class JavaIPCTest(unittest.TestCase):
         connection_mock = MagicMock()
         message = 'hello world'
         with patch.object(socket, 'socket', return_value=socket_mock), \
-                patch.object(protocol_lite.ProtocolLite, 'start_protocol_thread'), \
-                patch.object(protocol_lite.ProtocolLite, 'send_message') as send_message_mocked:
+                patch.object(protocol.Protocol, 'start_protocol_thread'), \
+                patch.object(protocol.Protocol, 'send_message') as send_message_mocked:
             test_ipc = ipc.IPC(4711, 4712, module_address='0200')
             test_ipc.listen_for_data = MagicMock()
             test_ipc.listen_for_data.__bool__.side_effect = [True, False]
@@ -155,8 +155,8 @@ class JavaIPCTest(unittest.TestCase):
         socket_mock = MagicMock()
         connection_mock = MagicMock()
         with patch.object(socket, 'socket', return_value=socket_mock), \
-                patch.object(protocol_lite.ProtocolLite, 'start_protocol_thread'), \
-                patch.object(protocol_lite.ProtocolLite, 'send_message'):
+                patch.object(protocol.Protocol, 'start_protocol_thread'), \
+                patch.object(protocol.Protocol, 'send_message'):
             test_ipc = ipc.IPC(4711, 4712, module_address='0200')
             test_ipc.listen_for_data = MagicMock()
             test_ipc.listen_for_data.__bool__.side_effect = [True, False]
@@ -172,8 +172,8 @@ class JavaIPCTest(unittest.TestCase):
         socket_mock = MagicMock()
         connection_mock = MagicMock()
         with patch.object(socket, 'socket', return_value=socket_mock), \
-                patch.object(protocol_lite.ProtocolLite, 'start_protocol_thread'), \
-                patch.object(protocol_lite.ProtocolLite, 'send_message'):
+                patch.object(protocol.Protocol, 'start_protocol_thread'), \
+                patch.object(protocol.Protocol, 'send_message'):
             test_ipc = ipc.IPC(4711, 4712, module_address='0200')
 
             socket_mock.accept.return_value = connection_mock, ''
@@ -189,7 +189,7 @@ class JavaIPCTest(unittest.TestCase):
             test_ipc.message_transfer_thread.start.assert_called()
 
     def test_stop_test_ipc(self):
-        with patch.object(protocol_lite.ProtocolLite, 'start_protocol_thread'):
+        with patch.object(protocol.Protocol, 'start_protocol_thread'):
             test_ipc = ipc.IPC(4711, 4712, module_address='0200')
             test_ipc.protocol = MagicMock()
             test_ipc.listen_for_data = True

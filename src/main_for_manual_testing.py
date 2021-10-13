@@ -3,7 +3,7 @@ import logging
 import serial
 
 from lora_multihop import serial_connection
-from lora_multihop.protocol_lite import ProtocolLite
+from lora_multihop.protocol import Protocol
 
 
 def reset_module():
@@ -26,5 +26,5 @@ if __name__ == '__main__':
 
     # module_config.config_module()
     serial_connection.start_send_receive_threads(ser)
-    protocol = ProtocolLite()
+    protocol = Protocol()
     protocol.send_message('test')
