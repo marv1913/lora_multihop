@@ -39,7 +39,7 @@ class IPC:
         while self.listen_for_data:
             try:
                 data = conn.recv(220)
-                print(f'data: {data}')
+                logging.debug(f'data: {data}')
                 if len(data) > 0:
                     self.protocol.send_message(data)
                 if not data:
