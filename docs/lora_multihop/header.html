@@ -26,7 +26,7 @@
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">from lora_multihop import consumer_producer, variables
+<pre><code class="python">from lora_multihop import variables
 
 __author__ = &#34;Marvin Rausch&#34;
 
@@ -38,32 +38,41 @@ EXPECTED_VALUE_COUNT_MESSAGE_HEADER = 6
 class Header:
 
     def __init__(self, received_from, source, flag, ttl):
-        # address of node where the message comes from (LR,{addr},...)
+        &#34;&#34;&#34;
+        constructor of Header class
+        :param received_from: address of node where the message comes from (LR,{addr},...) - last forwarding
+        :param source:
+        :param flag: int which defines header type
+        :param ttl: time to live
+        &#34;&#34;&#34;
         self.received_from = received_from
         self.source = source
         self.flag = flag
         self.ttl = int(ttl)
 
 
-def create_message_header_obj(header_in_bytes):
-    return MessageHeader(consumer_producer.bytes_to_str(header_in_bytes[3:7]), consumer_producer.bytes_to_str(header_in_bytes[12:16]), consumer_producer.bytes_to_str(header_in_bytes[19:20]), consumer_producer.bytes_to_str(header_in_bytes[21:25]),
-                         consumer_producer.bytes_to_str(header_in_bytes[26:30]), consumer_producer.bytes_to_str(header_in_bytes[31:37]), header_in_bytes[38:len(header_in_bytes) - 1])
+def __create_message_header_obj(received_from, header_str):
+    &#34;&#34;&#34;
+    creates message header object; helper function which is called by create_header_obj_from_raw message
+    :param received_from: address of last node which has forwarded message
+    :param header_str: from LoRa module received message as string
+    :return: message header object with attributes of received message
+    &#34;&#34;&#34;
+    payload = header_str[20:len(header_str) - 1]
+    if len(payload) == 0:
+        raise ValueError(&#39;payload missing&#39;)
+    return MessageHeader(received_from, header_str[1:5], header_str[8:9], header_str[10:14], header_str[15:19],
+                         header_str[20:26], header_str[27:len(header_str) - 1])
 
 
 def create_header_obj_from_raw_message(raw_message):
     &#34;&#34;&#34;
     creates a header object of appropriate header type from raw message
-    :param raw_message: raw message from LoRa module as bytes
+    :param raw_message: raw message from LoRa module as string
     :return: header object (type of header obj depends on flag in raw message)
     &#34;&#34;&#34;
     try:
-        flag = consumer_producer.bytes_to_str(raw_message[17:18])
-        check_int_field(flag)
-        flag = int(flag)
-        if flag == MessageHeader.HEADER_TYPE:
-            return create_message_header_obj(raw_message)
-        raw_message_as_str = consumer_producer.bytes_to_str(raw_message)
-        raw_message_as_list = raw_message_as_str.split(variables.LORA_MODULE_DELIMITER, maxsplit=3)
+        raw_message_as_list = raw_message.split(variables.LORA_MODULE_DELIMITER, maxsplit=3)
 
         received_from = raw_message_as_list[1]
         check_addr_field(received_from, &#39;received_from&#39;)
@@ -87,14 +96,16 @@ def create_header_obj_from_raw_message(raw_message):
         check_int_field(ttl)
         ttl = int(ttl)
 
-        if flag == MessageAcknowledgeHeader.HEADER_TYPE:
+        if flag == MessageHeader.HEADER_TYPE or flag == MessageAcknowledgeHeader.HEADER_TYPE:
             destination = header_as_list[3]
             if destination not in variables.AVAILABLE_NODES:
                 raise ValueError(
                     &#34;unknown destination: {destination} \n available destinations are {available_destinations}&#34;.format(
                         destination=destination, available_destinations=str(variables.AVAILABLE_NODES)))
-            return MessageAcknowledgeHeader(received_from, source, ttl, destination, header_as_list[4])
-
+            if flag == MessageAcknowledgeHeader.HEADER_TYPE:
+                return MessageAcknowledgeHeader(received_from, source, ttl, destination, header_as_list[4])
+            else:
+                return __create_message_header_obj(received_from, header_str)
         elif flag == RouteRequestHeader.HEADER_TYPE or flag == RouteReplyHeader.HEADER_TYPE:
             # it is a route request or a route reply header
             hops = header_as_list[3]
@@ -141,7 +152,7 @@ def create_header_obj_from_raw_message(raw_message):
             next_node = header_as_list[4]
             check_addr_field(next_node, &#39;end_node&#39;)
             return DisconnectRequestHeader(received_from, source, ttl, end_node, next_node, header_as_list[5],
-                                        header_as_list[6])
+                                           header_as_list[6])
         raise ValueError(f&#34;flag {flag} is not a valid flag&#34;)
     except IndexError:
         raise ValueError(&#34;header has an unexpected length&#34;)
@@ -174,6 +185,11 @@ def check_addr_field(addr_str, field_name=&#39;&#39;):
 
 
 def get_received_from_value(raw_message):
+    &#34;&#34;&#34;
+    extracts address of last node which has forwarded received message from raw message
+    :param raw_message: received message as string
+    :return: address of last node which has forwarded received message as string
+    &#34;&#34;&#34;
     try:
         received_from = raw_message.split(variables.LORA_MODULE_DELIMITER)[1]
         check_addr_field(received_from)
@@ -189,16 +205,12 @@ def get_flag_from_raw_message(raw_message):
     :return: flag as int
     &#34;&#34;&#34;
     try:
-        header_str = get_raw_message_as_list(raw_message)[3]
+        header_str = raw_message.split(&#39;,&#39;)[3]
         flag = header_str[4:5]
         flag = int(flag)
     except IndexError:
         raise ValueError(&#39;flag was not set&#39;)
     return flag
-
-
-def get_raw_message_as_list(raw_message):
-    return raw_message.split(&#39;,&#39;)
 
 
 class RouteRequestHeader(Header):
@@ -218,6 +230,10 @@ class RouteRequestHeader(Header):
         return self.source + &#34; &#34; + self.flag + &#34; &#34; + str(self.ttl) + &#34; &#34; + str(self.hops) + &#34; &#34; + self.end_node
 
     def get_header_str(self):
+        &#34;&#34;&#34;
+        create header message from header object which can be sent over LoRa network
+        :return: header object as string (format like defined in routing protocol)
+        &#34;&#34;&#34;
         return create_header_str(self.source, str(self.flag), str(self.ttl), str(self.hops), self.end_node)
 
 
@@ -236,10 +252,14 @@ class RouteReplyHeader(Header):
         to string method to make obj human readable for debugging purposes
         :return:
         &#34;&#34;&#34;
-        return self.source + &#34; &#34; + self.flag + &#34; &#34; + str(self.ttl) + &#34; &#34; + str(self.hops) + &#34; &#34; + self.end_node + \
-               &#34; &#34; + self.next_node
+        return self.source + &#34; &#34; + self.flag + &#34; &#34; + str(self.ttl) + &#34; &#34; + str(self.hops) + &#34; &#34; + self.end_node + &#34; &#34; \
+               + self.next_node
 
     def get_header_str(self):
+        &#34;&#34;&#34;
+        create header message from header object which can be sent over LoRa network
+        :return: header object as string (format like defined in routing protocol)
+        &#34;&#34;&#34;
         return create_header_str(self.source, str(self.flag), str(self.ttl), str(self.hops), self.end_node,
                                  self.next_node)
 
@@ -256,14 +276,12 @@ class MessageHeader(Header):
         self.message_id = int(message_id)
 
     def get_header_str(self):
+        &#34;&#34;&#34;
+        create header message from header object which can be sent over LoRa network
+        :return: header object as string (format like defined in routing protocol)
+        &#34;&#34;&#34;
         return create_header_str(self.source, str(self.flag), str(self.ttl), self.destination, self.next_node,
                                  f&#39;{self.message_id:06d}&#39;, self.payload)
-
-    def get_header_in_bytes(self):
-        return b&#39;|&#39; + consumer_producer.str_to_bytes(self.source) + b&#39;|&#39; + consumer_producer.str_to_bytes(str(self.flag)) + b&#39;|&#39; + \
-               consumer_producer.str_to_bytes(str(self.ttl)) + b&#39;|&#39; + consumer_producer.str_to_bytes(self.destination) + b&#39;|&#39; + \
-               consumer_producer.str_to_bytes(self.next_node) + b&#39;|&#39; + \
-               consumer_producer.str_to_bytes(f&#39;{self.message_id:06d}&#39;) + b&#39;|&#39; + self.payload + b&#39;|&#39;
 
 
 class RouteErrorHeader(Header):
@@ -274,6 +292,10 @@ class RouteErrorHeader(Header):
         self.broken_node = broken_node
 
     def get_header_str(self):
+        &#34;&#34;&#34;
+        create header message from header object which can be sent over LoRa network
+        :return: header object as string (format like defined in routing protocol)
+        &#34;&#34;&#34;
         return create_header_str(self.source, str(self.flag), str(self.ttl), self.broken_node)
 
 
@@ -289,6 +311,10 @@ class MessageAcknowledgeHeader(Header):
         self.message_id = message_id
 
     def get_header_str(self):
+        &#34;&#34;&#34;
+        create header message from header object which can be sent over LoRa network
+        :return: header object as string (format like defined in routing protocol)
+        &#34;&#34;&#34;
         return create_header_str(str(self.source), str(self.flag), str(self.ttl), self.destination, self.message_id)
 
 
@@ -303,6 +329,10 @@ class RegistrationHeader(Header):
         self.subscribe = subscribe
 
     def get_header_str(self):
+        &#34;&#34;&#34;
+        create header message from header object which can be sent over LoRa network
+        :return: header object as string (format like defined in routing protocol)
+        &#34;&#34;&#34;
         if self.subscribe:
             subscribe_str = &#39;true&#39;
         else:
@@ -330,6 +360,10 @@ class ConnectRequestHeader(Header):
                &#34; &#34; + self.source_peer_id + &#34; &#34; + self.target_peer_id + &#34; &#34; + self.timeout
 
     def get_header_str(self):
+        &#34;&#34;&#34;
+        create header message from header object which can be sent over LoRa network
+        :return: header object as string (format like defined in routing protocol)
+        &#34;&#34;&#34;
         return create_header_str(self.source, str(self.flag), str(self.ttl), self.end_node, self.next_node,
                                  self.source_peer_id, self.target_peer_id, self.timeout)
 
@@ -353,6 +387,10 @@ class DisconnectRequestHeader(Header):
                &#34; &#34; + self.source_peer_id + &#34; &#34; + self.target_peer_id
 
     def get_header_str(self):
+        &#34;&#34;&#34;
+        create header message from header object which can be sent over LoRa network
+        :return: header object as string (format like defined in routing protocol)
+        &#34;&#34;&#34;
         return create_header_str(self.source, str(self.flag), str(self.ttl), self.end_node, self.next_node,
                                  self.source_peer_id, self.target_peer_id)
 
@@ -433,7 +471,7 @@ message.
 </code></dt>
 <dd>
 <div class="desc"><p>creates a header object of appropriate header type from raw message
-:param raw_message: raw message from LoRa module as bytes
+:param raw_message: raw message from LoRa module as string
 :return: header object (type of header obj depends on flag in raw message)</p></div>
 <details class="source">
 <summary>
@@ -442,17 +480,11 @@ message.
 <pre><code class="python">def create_header_obj_from_raw_message(raw_message):
     &#34;&#34;&#34;
     creates a header object of appropriate header type from raw message
-    :param raw_message: raw message from LoRa module as bytes
+    :param raw_message: raw message from LoRa module as string
     :return: header object (type of header obj depends on flag in raw message)
     &#34;&#34;&#34;
     try:
-        flag = consumer_producer.bytes_to_str(raw_message[17:18])
-        check_int_field(flag)
-        flag = int(flag)
-        if flag == MessageHeader.HEADER_TYPE:
-            return create_message_header_obj(raw_message)
-        raw_message_as_str = consumer_producer.bytes_to_str(raw_message)
-        raw_message_as_list = raw_message_as_str.split(variables.LORA_MODULE_DELIMITER, maxsplit=3)
+        raw_message_as_list = raw_message.split(variables.LORA_MODULE_DELIMITER, maxsplit=3)
 
         received_from = raw_message_as_list[1]
         check_addr_field(received_from, &#39;received_from&#39;)
@@ -476,14 +508,16 @@ message.
         check_int_field(ttl)
         ttl = int(ttl)
 
-        if flag == MessageAcknowledgeHeader.HEADER_TYPE:
+        if flag == MessageHeader.HEADER_TYPE or flag == MessageAcknowledgeHeader.HEADER_TYPE:
             destination = header_as_list[3]
             if destination not in variables.AVAILABLE_NODES:
                 raise ValueError(
                     &#34;unknown destination: {destination} \n available destinations are {available_destinations}&#34;.format(
                         destination=destination, available_destinations=str(variables.AVAILABLE_NODES)))
-            return MessageAcknowledgeHeader(received_from, source, ttl, destination, header_as_list[4])
-
+            if flag == MessageAcknowledgeHeader.HEADER_TYPE:
+                return MessageAcknowledgeHeader(received_from, source, ttl, destination, header_as_list[4])
+            else:
+                return __create_message_header_obj(received_from, header_str)
         elif flag == RouteRequestHeader.HEADER_TYPE or flag == RouteReplyHeader.HEADER_TYPE:
             # it is a route request or a route reply header
             hops = header_as_list[3]
@@ -530,7 +564,7 @@ message.
             next_node = header_as_list[4]
             check_addr_field(next_node, &#39;end_node&#39;)
             return DisconnectRequestHeader(received_from, source, ttl, end_node, next_node, header_as_list[5],
-                                        header_as_list[6])
+                                           header_as_list[6])
         raise ValueError(f&#34;flag {flag} is not a valid flag&#34;)
     except IndexError:
         raise ValueError(&#34;header has an unexpected length&#34;)</code></pre>
@@ -559,20 +593,6 @@ message.
     return header_str</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.header.create_message_header_obj"><code class="name flex">
-<span>def <span class="ident">create_message_header_obj</span></span>(<span>header_in_bytes)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def create_message_header_obj(header_in_bytes):
-    return MessageHeader(consumer_producer.bytes_to_str(header_in_bytes[3:7]), consumer_producer.bytes_to_str(header_in_bytes[12:16]), consumer_producer.bytes_to_str(header_in_bytes[19:20]), consumer_producer.bytes_to_str(header_in_bytes[21:25]),
-                         consumer_producer.bytes_to_str(header_in_bytes[26:30]), consumer_producer.bytes_to_str(header_in_bytes[31:37]), header_in_bytes[38:len(header_in_bytes) - 1])</code></pre>
-</details>
-</dd>
 <dt id="lora_multihop.header.get_flag_from_raw_message"><code class="name flex">
 <span>def <span class="ident">get_flag_from_raw_message</span></span>(<span>raw_message)</span>
 </code></dt>
@@ -591,7 +611,7 @@ message.
     :return: flag as int
     &#34;&#34;&#34;
     try:
-        header_str = get_raw_message_as_list(raw_message)[3]
+        header_str = raw_message.split(&#39;,&#39;)[3]
         flag = header_str[4:5]
         flag = int(flag)
     except IndexError:
@@ -599,29 +619,23 @@ message.
     return flag</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.header.get_raw_message_as_list"><code class="name flex">
-<span>def <span class="ident">get_raw_message_as_list</span></span>(<span>raw_message)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def get_raw_message_as_list(raw_message):
-    return raw_message.split(&#39;,&#39;)</code></pre>
-</details>
-</dd>
 <dt id="lora_multihop.header.get_received_from_value"><code class="name flex">
 <span>def <span class="ident">get_received_from_value</span></span>(<span>raw_message)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>extracts address of last node which has forwarded received message from raw message
+:param raw_message: received message as string
+:return: address of last node which has forwarded received message as string</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def get_received_from_value(raw_message):
+    &#34;&#34;&#34;
+    extracts address of last node which has forwarded received message from raw message
+    :param raw_message: received message as string
+    :return: address of last node which has forwarded received message as string
+    &#34;&#34;&#34;
     try:
         received_from = raw_message.split(variables.LORA_MODULE_DELIMITER)[1]
         check_addr_field(received_from)
@@ -640,7 +654,11 @@ message.
 <span>(</span><span>received_from, source, ttl, end_node, next_node, source_peer_id, target_peer_id, timeout)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>constructor of Header class
+:param received_from: address of node where the message comes from (LR,{addr},&hellip;) - last forwarding
+:param source:
+:param flag: int which defines header type
+:param ttl: time to live</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -665,6 +683,10 @@ message.
                &#34; &#34; + self.source_peer_id + &#34; &#34; + self.target_peer_id + &#34; &#34; + self.timeout
 
     def get_header_str(self):
+        &#34;&#34;&#34;
+        create header message from header object which can be sent over LoRa network
+        :return: header object as string (format like defined in routing protocol)
+        &#34;&#34;&#34;
         return create_header_str(self.source, str(self.flag), str(self.ttl), self.end_node, self.next_node,
                                  self.source_peer_id, self.target_peer_id, self.timeout)</code></pre>
 </details>
@@ -685,12 +707,17 @@ message.
 <span>def <span class="ident">get_header_str</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>create header message from header object which can be sent over LoRa network
+:return: header object as string (format like defined in routing protocol)</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def get_header_str(self):
+    &#34;&#34;&#34;
+    create header message from header object which can be sent over LoRa network
+    :return: header object as string (format like defined in routing protocol)
+    &#34;&#34;&#34;
     return create_header_str(self.source, str(self.flag), str(self.ttl), self.end_node, self.next_node,
                              self.source_peer_id, self.target_peer_id, self.timeout)</code></pre>
 </details>
@@ -702,7 +729,11 @@ message.
 <span>(</span><span>received_from, source, ttl, end_node, next_node, source_peer_id, target_peer_id)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>constructor of Header class
+:param received_from: address of node where the message comes from (LR,{addr},&hellip;) - last forwarding
+:param source:
+:param flag: int which defines header type
+:param ttl: time to live</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -726,6 +757,10 @@ message.
                &#34; &#34; + self.source_peer_id + &#34; &#34; + self.target_peer_id
 
     def get_header_str(self):
+        &#34;&#34;&#34;
+        create header message from header object which can be sent over LoRa network
+        :return: header object as string (format like defined in routing protocol)
+        &#34;&#34;&#34;
         return create_header_str(self.source, str(self.flag), str(self.ttl), self.end_node, self.next_node,
                                  self.source_peer_id, self.target_peer_id)</code></pre>
 </details>
@@ -746,12 +781,17 @@ message.
 <span>def <span class="ident">get_header_str</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>create header message from header object which can be sent over LoRa network
+:return: header object as string (format like defined in routing protocol)</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def get_header_str(self):
+    &#34;&#34;&#34;
+    create header message from header object which can be sent over LoRa network
+    :return: header object as string (format like defined in routing protocol)
+    &#34;&#34;&#34;
     return create_header_str(self.source, str(self.flag), str(self.ttl), self.end_node, self.next_node,
                              self.source_peer_id, self.target_peer_id)</code></pre>
 </details>
@@ -763,7 +803,11 @@ message.
 <span>(</span><span>received_from, source, flag, ttl)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>constructor of Header class
+:param received_from: address of node where the message comes from (LR,{addr},&hellip;) - last forwarding
+:param source:
+:param flag: int which defines header type
+:param ttl: time to live</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -771,7 +815,13 @@ message.
 <pre><code class="python">class Header:
 
     def __init__(self, received_from, source, flag, ttl):
-        # address of node where the message comes from (LR,{addr},...)
+        &#34;&#34;&#34;
+        constructor of Header class
+        :param received_from: address of node where the message comes from (LR,{addr},...) - last forwarding
+        :param source:
+        :param flag: int which defines header type
+        :param ttl: time to live
+        &#34;&#34;&#34;
         self.received_from = received_from
         self.source = source
         self.flag = flag
@@ -794,7 +844,11 @@ message.
 <span>(</span><span>received_from, source, ttl, destination, message_id)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>constructor of Header class
+:param received_from: address of node where the message comes from (LR,{addr},&hellip;) - last forwarding
+:param source:
+:param flag: int which defines header type
+:param ttl: time to live</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -811,6 +865,10 @@ message.
         self.message_id = message_id
 
     def get_header_str(self):
+        &#34;&#34;&#34;
+        create header message from header object which can be sent over LoRa network
+        :return: header object as string (format like defined in routing protocol)
+        &#34;&#34;&#34;
         return create_header_str(str(self.source), str(self.flag), str(self.ttl), self.destination, self.message_id)</code></pre>
 </details>
 <h3>Ancestors</h3>
@@ -830,12 +888,17 @@ message.
 <span>def <span class="ident">get_header_str</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>create header message from header object which can be sent over LoRa network
+:return: header object as string (format like defined in routing protocol)</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def get_header_str(self):
+    &#34;&#34;&#34;
+    create header message from header object which can be sent over LoRa network
+    :return: header object as string (format like defined in routing protocol)
+    &#34;&#34;&#34;
     return create_header_str(str(self.source), str(self.flag), str(self.ttl), self.destination, self.message_id)</code></pre>
 </details>
 </dd>
@@ -846,7 +909,11 @@ message.
 <span>(</span><span>received_from, source, ttl, destination, next_node, message_id, payload)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>constructor of Header class
+:param received_from: address of node where the message comes from (LR,{addr},&hellip;) - last forwarding
+:param source:
+:param flag: int which defines header type
+:param ttl: time to live</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -863,14 +930,12 @@ message.
         self.message_id = int(message_id)
 
     def get_header_str(self):
+        &#34;&#34;&#34;
+        create header message from header object which can be sent over LoRa network
+        :return: header object as string (format like defined in routing protocol)
+        &#34;&#34;&#34;
         return create_header_str(self.source, str(self.flag), str(self.ttl), self.destination, self.next_node,
-                                 f&#39;{self.message_id:06d}&#39;, self.payload)
-
-    def get_header_in_bytes(self):
-        return b&#39;|&#39; + consumer_producer.str_to_bytes(self.source) + b&#39;|&#39; + consumer_producer.str_to_bytes(str(self.flag)) + b&#39;|&#39; + \
-               consumer_producer.str_to_bytes(str(self.ttl)) + b&#39;|&#39; + consumer_producer.str_to_bytes(self.destination) + b&#39;|&#39; + \
-               consumer_producer.str_to_bytes(self.next_node) + b&#39;|&#39; + \
-               consumer_producer.str_to_bytes(f&#39;{self.message_id:06d}&#39;) + b&#39;|&#39; + self.payload + b&#39;|&#39;</code></pre>
+                                 f&#39;{self.message_id:06d}&#39;, self.payload)</code></pre>
 </details>
 <h3>Ancestors</h3>
 <ul class="hlist">
@@ -889,32 +954,21 @@ message.
 </dl>
 <h3>Methods</h3>
 <dl>
-<dt id="lora_multihop.header.MessageHeader.get_header_in_bytes"><code class="name flex">
-<span>def <span class="ident">get_header_in_bytes</span></span>(<span>self)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def get_header_in_bytes(self):
-    return b&#39;|&#39; + consumer_producer.str_to_bytes(self.source) + b&#39;|&#39; + consumer_producer.str_to_bytes(str(self.flag)) + b&#39;|&#39; + \
-           consumer_producer.str_to_bytes(str(self.ttl)) + b&#39;|&#39; + consumer_producer.str_to_bytes(self.destination) + b&#39;|&#39; + \
-           consumer_producer.str_to_bytes(self.next_node) + b&#39;|&#39; + \
-           consumer_producer.str_to_bytes(f&#39;{self.message_id:06d}&#39;) + b&#39;|&#39; + self.payload + b&#39;|&#39;</code></pre>
-</details>
-</dd>
 <dt id="lora_multihop.header.MessageHeader.get_header_str"><code class="name flex">
 <span>def <span class="ident">get_header_str</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>create header message from header object which can be sent over LoRa network
+:return: header object as string (format like defined in routing protocol)</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def get_header_str(self):
+    &#34;&#34;&#34;
+    create header message from header object which can be sent over LoRa network
+    :return: header object as string (format like defined in routing protocol)
+    &#34;&#34;&#34;
     return create_header_str(self.source, str(self.flag), str(self.ttl), self.destination, self.next_node,
                              f&#39;{self.message_id:06d}&#39;, self.payload)</code></pre>
 </details>
@@ -926,7 +980,11 @@ message.
 <span>(</span><span>received_from, source, ttl, subscribe, peer_id)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>constructor of Header class
+:param received_from: address of node where the message comes from (LR,{addr},&hellip;) - last forwarding
+:param source:
+:param flag: int which defines header type
+:param ttl: time to live</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -942,6 +1000,10 @@ message.
         self.subscribe = subscribe
 
     def get_header_str(self):
+        &#34;&#34;&#34;
+        create header message from header object which can be sent over LoRa network
+        :return: header object as string (format like defined in routing protocol)
+        &#34;&#34;&#34;
         if self.subscribe:
             subscribe_str = &#39;true&#39;
         else:
@@ -965,12 +1027,17 @@ message.
 <span>def <span class="ident">get_header_str</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>create header message from header object which can be sent over LoRa network
+:return: header object as string (format like defined in routing protocol)</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def get_header_str(self):
+    &#34;&#34;&#34;
+    create header message from header object which can be sent over LoRa network
+    :return: header object as string (format like defined in routing protocol)
+    &#34;&#34;&#34;
     if self.subscribe:
         subscribe_str = &#39;true&#39;
     else:
@@ -985,7 +1052,11 @@ message.
 <span>(</span><span>received_from, source, ttl, broken_node)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>constructor of Header class
+:param received_from: address of node where the message comes from (LR,{addr},&hellip;) - last forwarding
+:param source:
+:param flag: int which defines header type
+:param ttl: time to live</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -998,6 +1069,10 @@ message.
         self.broken_node = broken_node
 
     def get_header_str(self):
+        &#34;&#34;&#34;
+        create header message from header object which can be sent over LoRa network
+        :return: header object as string (format like defined in routing protocol)
+        &#34;&#34;&#34;
         return create_header_str(self.source, str(self.flag), str(self.ttl), self.broken_node)</code></pre>
 </details>
 <h3>Ancestors</h3>
@@ -1017,12 +1092,17 @@ message.
 <span>def <span class="ident">get_header_str</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>create header message from header object which can be sent over LoRa network
+:return: header object as string (format like defined in routing protocol)</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def get_header_str(self):
+    &#34;&#34;&#34;
+    create header message from header object which can be sent over LoRa network
+    :return: header object as string (format like defined in routing protocol)
+    &#34;&#34;&#34;
     return create_header_str(self.source, str(self.flag), str(self.ttl), self.broken_node)</code></pre>
 </details>
 </dd>
@@ -1033,7 +1113,11 @@ message.
 <span>(</span><span>received_from, source, ttl, hops, end_node, next_node)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>constructor of Header class
+:param received_from: address of node where the message comes from (LR,{addr},&hellip;) - last forwarding
+:param source:
+:param flag: int which defines header type
+:param ttl: time to live</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -1053,10 +1137,14 @@ message.
         to string method to make obj human readable for debugging purposes
         :return:
         &#34;&#34;&#34;
-        return self.source + &#34; &#34; + self.flag + &#34; &#34; + str(self.ttl) + &#34; &#34; + str(self.hops) + &#34; &#34; + self.end_node + \
-               &#34; &#34; + self.next_node
+        return self.source + &#34; &#34; + self.flag + &#34; &#34; + str(self.ttl) + &#34; &#34; + str(self.hops) + &#34; &#34; + self.end_node + &#34; &#34; \
+               + self.next_node
 
     def get_header_str(self):
+        &#34;&#34;&#34;
+        create header message from header object which can be sent over LoRa network
+        :return: header object as string (format like defined in routing protocol)
+        &#34;&#34;&#34;
         return create_header_str(self.source, str(self.flag), str(self.ttl), str(self.hops), self.end_node,
                                  self.next_node)</code></pre>
 </details>
@@ -1081,12 +1169,17 @@ message.
 <span>def <span class="ident">get_header_str</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>create header message from header object which can be sent over LoRa network
+:return: header object as string (format like defined in routing protocol)</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def get_header_str(self):
+    &#34;&#34;&#34;
+    create header message from header object which can be sent over LoRa network
+    :return: header object as string (format like defined in routing protocol)
+    &#34;&#34;&#34;
     return create_header_str(self.source, str(self.flag), str(self.ttl), str(self.hops), self.end_node,
                              self.next_node)</code></pre>
 </details>
@@ -1098,7 +1191,11 @@ message.
 <span>(</span><span>received_from, source, ttl, hops, end_node)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>constructor of Header class
+:param received_from: address of node where the message comes from (LR,{addr},&hellip;) - last forwarding
+:param source:
+:param flag: int which defines header type
+:param ttl: time to live</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
@@ -1120,6 +1217,10 @@ message.
         return self.source + &#34; &#34; + self.flag + &#34; &#34; + str(self.ttl) + &#34; &#34; + str(self.hops) + &#34; &#34; + self.end_node
 
     def get_header_str(self):
+        &#34;&#34;&#34;
+        create header message from header object which can be sent over LoRa network
+        :return: header object as string (format like defined in routing protocol)
+        &#34;&#34;&#34;
         return create_header_str(self.source, str(self.flag), str(self.ttl), str(self.hops), self.end_node)</code></pre>
 </details>
 <h3>Ancestors</h3>
@@ -1143,12 +1244,17 @@ message.
 <span>def <span class="ident">get_header_str</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>create header message from header object which can be sent over LoRa network
+:return: header object as string (format like defined in routing protocol)</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def get_header_str(self):
+    &#34;&#34;&#34;
+    create header message from header object which can be sent over LoRa network
+    :return: header object as string (format like defined in routing protocol)
+    &#34;&#34;&#34;
     return create_header_str(self.source, str(self.flag), str(self.ttl), str(self.hops), self.end_node)</code></pre>
 </details>
 </dd>
@@ -1174,9 +1280,7 @@ message.
 <li><code><a title="lora_multihop.header.check_int_field" href="#lora_multihop.header.check_int_field">check_int_field</a></code></li>
 <li><code><a title="lora_multihop.header.create_header_obj_from_raw_message" href="#lora_multihop.header.create_header_obj_from_raw_message">create_header_obj_from_raw_message</a></code></li>
 <li><code><a title="lora_multihop.header.create_header_str" href="#lora_multihop.header.create_header_str">create_header_str</a></code></li>
-<li><code><a title="lora_multihop.header.create_message_header_obj" href="#lora_multihop.header.create_message_header_obj">create_message_header_obj</a></code></li>
 <li><code><a title="lora_multihop.header.get_flag_from_raw_message" href="#lora_multihop.header.get_flag_from_raw_message">get_flag_from_raw_message</a></code></li>
-<li><code><a title="lora_multihop.header.get_raw_message_as_list" href="#lora_multihop.header.get_raw_message_as_list">get_raw_message_as_list</a></code></li>
 <li><code><a title="lora_multihop.header.get_received_from_value" href="#lora_multihop.header.get_received_from_value">get_received_from_value</a></code></li>
 </ul>
 </li>
@@ -1211,7 +1315,6 @@ message.
 <ul class="">
 <li><code><a title="lora_multihop.header.MessageHeader.HEADER_TYPE" href="#lora_multihop.header.MessageHeader.HEADER_TYPE">HEADER_TYPE</a></code></li>
 <li><code><a title="lora_multihop.header.MessageHeader.LENGTH" href="#lora_multihop.header.MessageHeader.LENGTH">LENGTH</a></code></li>
-<li><code><a title="lora_multihop.header.MessageHeader.get_header_in_bytes" href="#lora_multihop.header.MessageHeader.get_header_in_bytes">get_header_in_bytes</a></code></li>
 <li><code><a title="lora_multihop.header.MessageHeader.get_header_str" href="#lora_multihop.header.MessageHeader.get_header_str">get_header_str</a></code></li>
 </ul>
 </li>

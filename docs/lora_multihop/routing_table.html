@@ -47,6 +47,12 @@ class RoutingTable:
         self.processed_connect_request = []
 
     def add_routing_table_entry(self, destination, next_node, hops):
+        &#34;&#34;&#34;
+        adds new entry to the routing table
+        :param destination: destination address
+        :param next_node: address next node
+        :param hops: costs
+        &#34;&#34;&#34;
         new_routing_table_entry = {&#39;destination&#39;: destination, &#39;next_node&#39;: next_node, &#39;hops&#39;: hops}
         if not self.check_routing_table_entry_exists(destination, next_node, hops):
             logging.debug(&#39;new entry in routing table: {}&#39;.format(str(new_routing_table_entry)))
@@ -56,15 +62,22 @@ class RoutingTable:
         else:
             logging.debug(&#39;entry already exists: {}&#39;.format(str(new_routing_table_entry)))
 
-    def add_received_message(self, source, message_id):
-        if not self.check_message_already_received(source, message_id):
-            self.received_messages.append({&#39;source&#39;: source, &#39;message_id&#39;: message_id})
-
     def add_connect_request(self, source_peer_id, target_peer_id):
+        &#34;&#34;&#34;
+        adds connect request to a list, to prevent software from processing same connect request twice
+        :param source_peer_id: peer id of source peer
+        :param target_peer_id: peer id of target peer
+        &#34;&#34;&#34;
         self.processed_connect_request.append(
             {&#39;source_peer_id&#39;: source_peer_id, &#39;target_peer_id&#39;: target_peer_id, &#39;time&#39;: time.time()})
 
     def check_connect_request_entry_already_exists(self, source_peer_id, target_peer_id):
+        &#34;&#34;&#34;
+        checks if connect request was already processed during the last 45 seconds
+        :param source_peer_id: peer id of source peer
+        :param target_peer_id: peer id of target peer
+        :return: True if request has already been processed; else False
+        &#34;&#34;&#34;
         new_list = []
         current_time = time.time()
         for entry in self.processed_connect_request:
@@ -76,27 +89,53 @@ class RoutingTable:
         return False
 
     def check_message_already_received(self, source, message_id):
+        &#34;&#34;&#34;
+        checks if MessageHeader has already been received
+        :param source: source address of received message
+        :param message_id: message id of received message
+        :return: True if message has already been received; else False
+        &#34;&#34;&#34;
         for entry in self.received_messages:
             if entry[&#39;source&#39;] == source and entry[&#39;message_id&#39;] == message_id:
                 return True
         return False
 
     def check_routing_table_entry_exists(self, destination, next_node, hops):
+        &#34;&#34;&#34;
+        checks whether a route is already in routing table
+        :param destination: destination address
+        :param next_node: address of next node
+        :param hops: costs
+        :return: True if route is already saved in routing table; else False
+        &#34;&#34;&#34;
         for entry in self.routing_table:
             if entry[&#39;destination&#39;] == destination and entry[&#39;next_node&#39;] == next_node and entry[&#39;hops&#39;] == hops:
                 return True
         return False
 
     def add_neighbor_to_routing_table(self, header_obj):
+        &#34;&#34;&#34;
+        adds node to routing table which is in direct range (hops==1)
+        :param header_obj: object of subclass of class Header
+        &#34;&#34;&#34;
         logging.debug(&#39;call add neighbor function&#39;)
         received_from = header_obj.received_from
         self.add_routing_table_entry(received_from, received_from, 1)
 
     def add_neighbor_with_unsupported_protocol(self, address):
+        &#34;&#34;&#34;
+        adds address to the list of nodes which send messages with another protocol
+        :param address: address of node
+        &#34;&#34;&#34;
         if address not in self.unsupported_devices:
             self.unsupported_devices.append(address)
 
     def get_best_route_for_destination(self, destination):
+        &#34;&#34;&#34;
+        method to get the route with lowest costs for given destination
+        :param destination: destination address
+        :return: routing table entry as dict
+        &#34;&#34;&#34;
         if destination not in variables.AVAILABLE_NODES:
             raise ValueError(&#34;destination address &#39;{}&#39; does not exist&#34;.format(destination))
         list_of_available_routes = []
@@ -110,27 +149,33 @@ class RoutingTable:
         return best_route
 
     def get_list_of_all_available_destinations(self):
+        &#34;&#34;&#34;
+        method to get addresses of all available nodes in network
+        :return: addresses of all available nodes as list
+        &#34;&#34;&#34;
         available_destinations = []
         for entry in self.routing_table:
             if entry[&#39;destination&#39;] not in available_destinations:
                 available_destinations.append(entry[&#39;destination&#39;])
         return available_destinations
 
-    def get_list_of_best_routes_for_all_available_destinations(self):
-        best_routes = []
-        for entry in self.get_list_of_all_available_destinations():
-            best_route = self.get_best_route_for_destination(entry)
-            if len(best_route) != 0:
-                best_routes.append(best_route)
-        return best_routes
-
     def add_peer(self, peer_id, address):
+        &#34;&#34;&#34;
+        adds a peer to available_peers list
+        :param peer_id: id of peer
+        :param address: address where peer was registered
+        &#34;&#34;&#34;
         if self.check_entry_for_peer_exists(peer_id, address):
             logging.debug(&#39;entry already exists&#39;)
         else:
             self.available_peers.append({&#39;peer_id&#39;: peer_id, &#39;address&#39;: address})
 
     def delete_peer(self, peer_id, address):
+        &#34;&#34;&#34;
+        deletes a peer from available_peers list
+        :param peer_id: id of peer
+        :param address: address where peer was registered
+        &#34;&#34;&#34;
         new_list = []
         for entry in self.available_peers:
             if entry[&#39;peer_id&#39;] != peer_id and entry[&#39;address&#39;] != address:
@@ -138,33 +183,67 @@ class RoutingTable:
         self.available_peers = new_list
 
     def get_peers(self):
+        &#34;&#34;&#34;
+        method to get list of peer id&#39;s of all available peers
+        :return: peer id&#39;s as list
+        &#34;&#34;&#34;
         return copy.deepcopy(self.available_peers)
 
     def check_entry_for_peer_exists(self, peer_id, address):
+        &#34;&#34;&#34;
+        checks whether entry in available_peers list already exists
+        :param peer_id: id of peer
+        :param address: address where peer was registered
+        :return: True if entry already exists; else False
+        &#34;&#34;&#34;
         for entry in self.available_peers:
             if entry[&#39;peer_id&#39;] == peer_id and entry[&#39;address&#39;] == address:
                 return True
         return False
 
     def check_peer_is_already_registered(self, peer_id):
+        &#34;&#34;&#34;
+        checks whether a peer is already registered
+        :param peer_id: id of peer
+        :return: True if peer already has been registered; else False
+        &#34;&#34;&#34;
         for entry in self.available_peers:
             if entry[&#39;peer_id&#39;] == peer_id:
                 return True
         return False
 
     def get_address_of_peer(self, peer_id):
+        &#34;&#34;&#34;
+        method to get the address of the node where a peer was registered
+        :param peer_id: id of peer
+        :return: address where the peer was registered
+        &#34;&#34;&#34;
         for entry in self.available_peers:
             if entry[&#39;peer_id&#39;] == peer_id:
                 return entry[&#39;address&#39;]
 
     def add_address_to_processed_requests_list(self, address):
+        &#34;&#34;&#34;
+        adds address of a received route request to a list to prevent software from forwarding same request multiple
+        times (prevent cycles)
+        :param address: address of destination node
+        &#34;&#34;&#34;
         self.processed_route_requests = add_address_to_processed_list(address, self.processed_route_requests)
 
     def add_address_to_processed_registration_messages_list(self, address):
+        &#34;&#34;&#34;
+        adds address of a registration message header to a list to prevent software from processing same message
+        multiple times
+        :param address: source address of registration header
+        &#34;&#34;&#34;
         self.processed_registration_messages = add_address_to_processed_list(address,
                                                                              self.processed_registration_messages)
 
     def delete_all_entries_of_destination(self, destination):
+        &#34;&#34;&#34;
+        deletes all routing table entries of a destination
+        :param destination: address of destination
+        &#34;&#34;&#34;
         new_list = []
         for entry in self.routing_table:
             if destination not in entry.values():
@@ -172,13 +251,21 @@ class RoutingTable:
         self.routing_table = new_list
 
     def check_route_request_already_processed(self, address):
+        &#34;&#34;&#34;
+        method to check whether a route request header already has been processed
+        :param address: end node address of route request
+        :return: True if request already has been processed; else False
+        &#34;&#34;&#34;
         return check_message_already_processed(address, self.processed_route_requests)
-
-    def check_registration_message_already_processed(self, address):
-        return check_message_already_processed(address, self.processed_registration_messages)
 
 
 def add_address_to_processed_list(address, processed_list):
+    &#34;&#34;&#34;
+    helper function which adds an address to list, to check whether message already has been processed
+    :param address: address which should be added to list
+    :param processed_list: list where to add the address
+    :return: passed list where new item was added
+    &#34;&#34;&#34;
     processed_list = clean_already_processed_requests_list(processed_list)
 
     if not check_message_already_processed(address, processed_list):
@@ -187,6 +274,11 @@ def add_address_to_processed_list(address, processed_list):
 
 
 def clean_already_processed_requests_list(processed_list):
+    &#34;&#34;&#34;
+    helper function to delete all entries from list which are older than variables.PROCESSED_ROUTE_REQUEST_TIMEOUT
+    :param processed_list: list where entries should be deleted
+    :return: cleaned list
+    &#34;&#34;&#34;
     current_time = time.time()
     cleaned_list = []
     for address_dict in processed_list:
@@ -197,6 +289,12 @@ def clean_already_processed_requests_list(processed_list):
 
 
 def check_message_already_processed(address, processed_list):
+    &#34;&#34;&#34;
+    helper function to check whether a message already has been processed
+    :param address: address to check for
+    :param processed_list: list where to search for passed address
+    :return: True if message already has been processed; else False
+    &#34;&#34;&#34;
     processed_list = clean_already_processed_requests_list(processed_list)
 
     for address_dict in processed_list:
@@ -216,12 +314,21 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">add_address_to_processed_list</span></span>(<span>address, processed_list)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>helper function which adds an address to list, to check whether message already has been processed
+:param address: address which should be added to list
+:param processed_list: list where to add the address
+:return: passed list where new item was added</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def add_address_to_processed_list(address, processed_list):
+    &#34;&#34;&#34;
+    helper function which adds an address to list, to check whether message already has been processed
+    :param address: address which should be added to list
+    :param processed_list: list where to add the address
+    :return: passed list where new item was added
+    &#34;&#34;&#34;
     processed_list = clean_already_processed_requests_list(processed_list)
 
     if not check_message_already_processed(address, processed_list):
@@ -233,12 +340,21 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">check_message_already_processed</span></span>(<span>address, processed_list)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>helper function to check whether a message already has been processed
+:param address: address to check for
+:param processed_list: list where to search for passed address
+:return: True if message already has been processed; else False</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def check_message_already_processed(address, processed_list):
+    &#34;&#34;&#34;
+    helper function to check whether a message already has been processed
+    :param address: address to check for
+    :param processed_list: list where to search for passed address
+    :return: True if message already has been processed; else False
+    &#34;&#34;&#34;
     processed_list = clean_already_processed_requests_list(processed_list)
 
     for address_dict in processed_list:
@@ -251,12 +367,19 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">clean_already_processed_requests_list</span></span>(<span>processed_list)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>helper function to delete all entries from list which are older than variables.PROCESSED_ROUTE_REQUEST_TIMEOUT
+:param processed_list: list where entries should be deleted
+:return: cleaned list</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def clean_already_processed_requests_list(processed_list):
+    &#34;&#34;&#34;
+    helper function to delete all entries from list which are older than variables.PROCESSED_ROUTE_REQUEST_TIMEOUT
+    :param processed_list: list where entries should be deleted
+    :return: cleaned list
+    &#34;&#34;&#34;
     current_time = time.time()
     cleaned_list = []
     for address_dict in processed_list:
@@ -292,6 +415,12 @@ def check_message_already_processed(address, processed_list):
         self.processed_connect_request = []
 
     def add_routing_table_entry(self, destination, next_node, hops):
+        &#34;&#34;&#34;
+        adds new entry to the routing table
+        :param destination: destination address
+        :param next_node: address next node
+        :param hops: costs
+        &#34;&#34;&#34;
         new_routing_table_entry = {&#39;destination&#39;: destination, &#39;next_node&#39;: next_node, &#39;hops&#39;: hops}
         if not self.check_routing_table_entry_exists(destination, next_node, hops):
             logging.debug(&#39;new entry in routing table: {}&#39;.format(str(new_routing_table_entry)))
@@ -301,15 +430,22 @@ def check_message_already_processed(address, processed_list):
         else:
             logging.debug(&#39;entry already exists: {}&#39;.format(str(new_routing_table_entry)))
 
-    def add_received_message(self, source, message_id):
-        if not self.check_message_already_received(source, message_id):
-            self.received_messages.append({&#39;source&#39;: source, &#39;message_id&#39;: message_id})
-
     def add_connect_request(self, source_peer_id, target_peer_id):
+        &#34;&#34;&#34;
+        adds connect request to a list, to prevent software from processing same connect request twice
+        :param source_peer_id: peer id of source peer
+        :param target_peer_id: peer id of target peer
+        &#34;&#34;&#34;
         self.processed_connect_request.append(
             {&#39;source_peer_id&#39;: source_peer_id, &#39;target_peer_id&#39;: target_peer_id, &#39;time&#39;: time.time()})
 
     def check_connect_request_entry_already_exists(self, source_peer_id, target_peer_id):
+        &#34;&#34;&#34;
+        checks if connect request was already processed during the last 45 seconds
+        :param source_peer_id: peer id of source peer
+        :param target_peer_id: peer id of target peer
+        :return: True if request has already been processed; else False
+        &#34;&#34;&#34;
         new_list = []
         current_time = time.time()
         for entry in self.processed_connect_request:
@@ -321,27 +457,53 @@ def check_message_already_processed(address, processed_list):
         return False
 
     def check_message_already_received(self, source, message_id):
+        &#34;&#34;&#34;
+        checks if MessageHeader has already been received
+        :param source: source address of received message
+        :param message_id: message id of received message
+        :return: True if message has already been received; else False
+        &#34;&#34;&#34;
         for entry in self.received_messages:
             if entry[&#39;source&#39;] == source and entry[&#39;message_id&#39;] == message_id:
                 return True
         return False
 
     def check_routing_table_entry_exists(self, destination, next_node, hops):
+        &#34;&#34;&#34;
+        checks whether a route is already in routing table
+        :param destination: destination address
+        :param next_node: address of next node
+        :param hops: costs
+        :return: True if route is already saved in routing table; else False
+        &#34;&#34;&#34;
         for entry in self.routing_table:
             if entry[&#39;destination&#39;] == destination and entry[&#39;next_node&#39;] == next_node and entry[&#39;hops&#39;] == hops:
                 return True
         return False
 
     def add_neighbor_to_routing_table(self, header_obj):
+        &#34;&#34;&#34;
+        adds node to routing table which is in direct range (hops==1)
+        :param header_obj: object of subclass of class Header
+        &#34;&#34;&#34;
         logging.debug(&#39;call add neighbor function&#39;)
         received_from = header_obj.received_from
         self.add_routing_table_entry(received_from, received_from, 1)
 
     def add_neighbor_with_unsupported_protocol(self, address):
+        &#34;&#34;&#34;
+        adds address to the list of nodes which send messages with another protocol
+        :param address: address of node
+        &#34;&#34;&#34;
         if address not in self.unsupported_devices:
             self.unsupported_devices.append(address)
 
     def get_best_route_for_destination(self, destination):
+        &#34;&#34;&#34;
+        method to get the route with lowest costs for given destination
+        :param destination: destination address
+        :return: routing table entry as dict
+        &#34;&#34;&#34;
         if destination not in variables.AVAILABLE_NODES:
             raise ValueError(&#34;destination address &#39;{}&#39; does not exist&#34;.format(destination))
         list_of_available_routes = []
@@ -355,27 +517,33 @@ def check_message_already_processed(address, processed_list):
         return best_route
 
     def get_list_of_all_available_destinations(self):
+        &#34;&#34;&#34;
+        method to get addresses of all available nodes in network
+        :return: addresses of all available nodes as list
+        &#34;&#34;&#34;
         available_destinations = []
         for entry in self.routing_table:
             if entry[&#39;destination&#39;] not in available_destinations:
                 available_destinations.append(entry[&#39;destination&#39;])
         return available_destinations
 
-    def get_list_of_best_routes_for_all_available_destinations(self):
-        best_routes = []
-        for entry in self.get_list_of_all_available_destinations():
-            best_route = self.get_best_route_for_destination(entry)
-            if len(best_route) != 0:
-                best_routes.append(best_route)
-        return best_routes
-
     def add_peer(self, peer_id, address):
+        &#34;&#34;&#34;
+        adds a peer to available_peers list
+        :param peer_id: id of peer
+        :param address: address where peer was registered
+        &#34;&#34;&#34;
         if self.check_entry_for_peer_exists(peer_id, address):
             logging.debug(&#39;entry already exists&#39;)
         else:
             self.available_peers.append({&#39;peer_id&#39;: peer_id, &#39;address&#39;: address})
 
     def delete_peer(self, peer_id, address):
+        &#34;&#34;&#34;
+        deletes a peer from available_peers list
+        :param peer_id: id of peer
+        :param address: address where peer was registered
+        &#34;&#34;&#34;
         new_list = []
         for entry in self.available_peers:
             if entry[&#39;peer_id&#39;] != peer_id and entry[&#39;address&#39;] != address:
@@ -383,33 +551,67 @@ def check_message_already_processed(address, processed_list):
         self.available_peers = new_list
 
     def get_peers(self):
+        &#34;&#34;&#34;
+        method to get list of peer id&#39;s of all available peers
+        :return: peer id&#39;s as list
+        &#34;&#34;&#34;
         return copy.deepcopy(self.available_peers)
 
     def check_entry_for_peer_exists(self, peer_id, address):
+        &#34;&#34;&#34;
+        checks whether entry in available_peers list already exists
+        :param peer_id: id of peer
+        :param address: address where peer was registered
+        :return: True if entry already exists; else False
+        &#34;&#34;&#34;
         for entry in self.available_peers:
             if entry[&#39;peer_id&#39;] == peer_id and entry[&#39;address&#39;] == address:
                 return True
         return False
 
     def check_peer_is_already_registered(self, peer_id):
+        &#34;&#34;&#34;
+        checks whether a peer is already registered
+        :param peer_id: id of peer
+        :return: True if peer already has been registered; else False
+        &#34;&#34;&#34;
         for entry in self.available_peers:
             if entry[&#39;peer_id&#39;] == peer_id:
                 return True
         return False
 
     def get_address_of_peer(self, peer_id):
+        &#34;&#34;&#34;
+        method to get the address of the node where a peer was registered
+        :param peer_id: id of peer
+        :return: address where the peer was registered
+        &#34;&#34;&#34;
         for entry in self.available_peers:
             if entry[&#39;peer_id&#39;] == peer_id:
                 return entry[&#39;address&#39;]
 
     def add_address_to_processed_requests_list(self, address):
+        &#34;&#34;&#34;
+        adds address of a received route request to a list to prevent software from forwarding same request multiple
+        times (prevent cycles)
+        :param address: address of destination node
+        &#34;&#34;&#34;
         self.processed_route_requests = add_address_to_processed_list(address, self.processed_route_requests)
 
     def add_address_to_processed_registration_messages_list(self, address):
+        &#34;&#34;&#34;
+        adds address of a registration message header to a list to prevent software from processing same message
+        multiple times
+        :param address: source address of registration header
+        &#34;&#34;&#34;
         self.processed_registration_messages = add_address_to_processed_list(address,
                                                                              self.processed_registration_messages)
 
     def delete_all_entries_of_destination(self, destination):
+        &#34;&#34;&#34;
+        deletes all routing table entries of a destination
+        :param destination: address of destination
+        &#34;&#34;&#34;
         new_list = []
         for entry in self.routing_table:
             if destination not in entry.values():
@@ -417,10 +619,12 @@ def check_message_already_processed(address, processed_list):
         self.routing_table = new_list
 
     def check_route_request_already_processed(self, address):
-        return check_message_already_processed(address, self.processed_route_requests)
-
-    def check_registration_message_already_processed(self, address):
-        return check_message_already_processed(address, self.processed_registration_messages)</code></pre>
+        &#34;&#34;&#34;
+        method to check whether a route request header already has been processed
+        :param address: end node address of route request
+        :return: True if request already has been processed; else False
+        &#34;&#34;&#34;
+        return check_message_already_processed(address, self.processed_route_requests)</code></pre>
 </details>
 <h3>Methods</h3>
 <dl>
@@ -428,12 +632,19 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">add_address_to_processed_registration_messages_list</span></span>(<span>self, address)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>adds address of a registration message header to a list to prevent software from processing same message
+multiple times
+:param address: source address of registration header</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def add_address_to_processed_registration_messages_list(self, address):
+    &#34;&#34;&#34;
+    adds address of a registration message header to a list to prevent software from processing same message
+    multiple times
+    :param address: source address of registration header
+    &#34;&#34;&#34;
     self.processed_registration_messages = add_address_to_processed_list(address,
                                                                          self.processed_registration_messages)</code></pre>
 </details>
@@ -442,12 +653,19 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">add_address_to_processed_requests_list</span></span>(<span>self, address)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>adds address of a received route request to a list to prevent software from forwarding same request multiple
+times (prevent cycles)
+:param address: address of destination node</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def add_address_to_processed_requests_list(self, address):
+    &#34;&#34;&#34;
+    adds address of a received route request to a list to prevent software from forwarding same request multiple
+    times (prevent cycles)
+    :param address: address of destination node
+    &#34;&#34;&#34;
     self.processed_route_requests = add_address_to_processed_list(address, self.processed_route_requests)</code></pre>
 </details>
 </dd>
@@ -455,12 +673,19 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">add_connect_request</span></span>(<span>self, source_peer_id, target_peer_id)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>adds connect request to a list, to prevent software from processing same connect request twice
+:param source_peer_id: peer id of source peer
+:param target_peer_id: peer id of target peer</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def add_connect_request(self, source_peer_id, target_peer_id):
+    &#34;&#34;&#34;
+    adds connect request to a list, to prevent software from processing same connect request twice
+    :param source_peer_id: peer id of source peer
+    :param target_peer_id: peer id of target peer
+    &#34;&#34;&#34;
     self.processed_connect_request.append(
         {&#39;source_peer_id&#39;: source_peer_id, &#39;target_peer_id&#39;: target_peer_id, &#39;time&#39;: time.time()})</code></pre>
 </details>
@@ -469,12 +694,17 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">add_neighbor_to_routing_table</span></span>(<span>self, header_obj)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>adds node to routing table which is in direct range (hops==1)
+:param header_obj: object of subclass of class Header</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def add_neighbor_to_routing_table(self, header_obj):
+    &#34;&#34;&#34;
+    adds node to routing table which is in direct range (hops==1)
+    :param header_obj: object of subclass of class Header
+    &#34;&#34;&#34;
     logging.debug(&#39;call add neighbor function&#39;)
     received_from = header_obj.received_from
     self.add_routing_table_entry(received_from, received_from, 1)</code></pre>
@@ -484,12 +714,17 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">add_neighbor_with_unsupported_protocol</span></span>(<span>self, address)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>adds address to the list of nodes which send messages with another protocol
+:param address: address of node</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def add_neighbor_with_unsupported_protocol(self, address):
+    &#34;&#34;&#34;
+    adds address to the list of nodes which send messages with another protocol
+    :param address: address of node
+    &#34;&#34;&#34;
     if address not in self.unsupported_devices:
         self.unsupported_devices.append(address)</code></pre>
 </details>
@@ -498,42 +733,44 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">add_peer</span></span>(<span>self, peer_id, address)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>adds a peer to available_peers list
+:param peer_id: id of peer
+:param address: address where peer was registered</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def add_peer(self, peer_id, address):
+    &#34;&#34;&#34;
+    adds a peer to available_peers list
+    :param peer_id: id of peer
+    :param address: address where peer was registered
+    &#34;&#34;&#34;
     if self.check_entry_for_peer_exists(peer_id, address):
         logging.debug(&#39;entry already exists&#39;)
     else:
         self.available_peers.append({&#39;peer_id&#39;: peer_id, &#39;address&#39;: address})</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.routing_table.RoutingTable.add_received_message"><code class="name flex">
-<span>def <span class="ident">add_received_message</span></span>(<span>self, source, message_id)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def add_received_message(self, source, message_id):
-    if not self.check_message_already_received(source, message_id):
-        self.received_messages.append({&#39;source&#39;: source, &#39;message_id&#39;: message_id})</code></pre>
-</details>
-</dd>
 <dt id="lora_multihop.routing_table.RoutingTable.add_routing_table_entry"><code class="name flex">
 <span>def <span class="ident">add_routing_table_entry</span></span>(<span>self, destination, next_node, hops)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>adds new entry to the routing table
+:param destination: destination address
+:param next_node: address next node
+:param hops: costs</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def add_routing_table_entry(self, destination, next_node, hops):
+    &#34;&#34;&#34;
+    adds new entry to the routing table
+    :param destination: destination address
+    :param next_node: address next node
+    :param hops: costs
+    &#34;&#34;&#34;
     new_routing_table_entry = {&#39;destination&#39;: destination, &#39;next_node&#39;: next_node, &#39;hops&#39;: hops}
     if not self.check_routing_table_entry_exists(destination, next_node, hops):
         logging.debug(&#39;new entry in routing table: {}&#39;.format(str(new_routing_table_entry)))
@@ -548,12 +785,21 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">check_connect_request_entry_already_exists</span></span>(<span>self, source_peer_id, target_peer_id)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>checks if connect request was already processed during the last 45 seconds
+:param source_peer_id: peer id of source peer
+:param target_peer_id: peer id of target peer
+:return: True if request has already been processed; else False</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def check_connect_request_entry_already_exists(self, source_peer_id, target_peer_id):
+    &#34;&#34;&#34;
+    checks if connect request was already processed during the last 45 seconds
+    :param source_peer_id: peer id of source peer
+    :param target_peer_id: peer id of target peer
+    :return: True if request has already been processed; else False
+    &#34;&#34;&#34;
     new_list = []
     current_time = time.time()
     for entry in self.processed_connect_request:
@@ -569,12 +815,21 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">check_entry_for_peer_exists</span></span>(<span>self, peer_id, address)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>checks whether entry in available_peers list already exists
+:param peer_id: id of peer
+:param address: address where peer was registered
+:return: True if entry already exists; else False</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def check_entry_for_peer_exists(self, peer_id, address):
+    &#34;&#34;&#34;
+    checks whether entry in available_peers list already exists
+    :param peer_id: id of peer
+    :param address: address where peer was registered
+    :return: True if entry already exists; else False
+    &#34;&#34;&#34;
     for entry in self.available_peers:
         if entry[&#39;peer_id&#39;] == peer_id and entry[&#39;address&#39;] == address:
             return True
@@ -585,12 +840,21 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">check_message_already_received</span></span>(<span>self, source, message_id)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>checks if MessageHeader has already been received
+:param source: source address of received message
+:param message_id: message id of received message
+:return: True if message has already been received; else False</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def check_message_already_received(self, source, message_id):
+    &#34;&#34;&#34;
+    checks if MessageHeader has already been received
+    :param source: source address of received message
+    :param message_id: message id of received message
+    :return: True if message has already been received; else False
+    &#34;&#34;&#34;
     for entry in self.received_messages:
         if entry[&#39;source&#39;] == source and entry[&#39;message_id&#39;] == message_id:
             return True
@@ -601,41 +865,42 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">check_peer_is_already_registered</span></span>(<span>self, peer_id)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>checks whether a peer is already registered
+:param peer_id: id of peer
+:return: True if peer already has been registered; else False</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def check_peer_is_already_registered(self, peer_id):
+    &#34;&#34;&#34;
+    checks whether a peer is already registered
+    :param peer_id: id of peer
+    :return: True if peer already has been registered; else False
+    &#34;&#34;&#34;
     for entry in self.available_peers:
         if entry[&#39;peer_id&#39;] == peer_id:
             return True
     return False</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.routing_table.RoutingTable.check_registration_message_already_processed"><code class="name flex">
-<span>def <span class="ident">check_registration_message_already_processed</span></span>(<span>self, address)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def check_registration_message_already_processed(self, address):
-    return check_message_already_processed(address, self.processed_registration_messages)</code></pre>
-</details>
-</dd>
 <dt id="lora_multihop.routing_table.RoutingTable.check_route_request_already_processed"><code class="name flex">
 <span>def <span class="ident">check_route_request_already_processed</span></span>(<span>self, address)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>method to check whether a route request header already has been processed
+:param address: end node address of route request
+:return: True if request already has been processed; else False</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def check_route_request_already_processed(self, address):
+    &#34;&#34;&#34;
+    method to check whether a route request header already has been processed
+    :param address: end node address of route request
+    :return: True if request already has been processed; else False
+    &#34;&#34;&#34;
     return check_message_already_processed(address, self.processed_route_requests)</code></pre>
 </details>
 </dd>
@@ -643,12 +908,23 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">check_routing_table_entry_exists</span></span>(<span>self, destination, next_node, hops)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>checks whether a route is already in routing table
+:param destination: destination address
+:param next_node: address of next node
+:param hops: costs
+:return: True if route is already saved in routing table; else False</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def check_routing_table_entry_exists(self, destination, next_node, hops):
+    &#34;&#34;&#34;
+    checks whether a route is already in routing table
+    :param destination: destination address
+    :param next_node: address of next node
+    :param hops: costs
+    :return: True if route is already saved in routing table; else False
+    &#34;&#34;&#34;
     for entry in self.routing_table:
         if entry[&#39;destination&#39;] == destination and entry[&#39;next_node&#39;] == next_node and entry[&#39;hops&#39;] == hops:
             return True
@@ -659,12 +935,17 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">delete_all_entries_of_destination</span></span>(<span>self, destination)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>deletes all routing table entries of a destination
+:param destination: address of destination</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def delete_all_entries_of_destination(self, destination):
+    &#34;&#34;&#34;
+    deletes all routing table entries of a destination
+    :param destination: address of destination
+    &#34;&#34;&#34;
     new_list = []
     for entry in self.routing_table:
         if destination not in entry.values():
@@ -676,12 +957,19 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">delete_peer</span></span>(<span>self, peer_id, address)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>deletes a peer from available_peers list
+:param peer_id: id of peer
+:param address: address where peer was registered</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def delete_peer(self, peer_id, address):
+    &#34;&#34;&#34;
+    deletes a peer from available_peers list
+    :param peer_id: id of peer
+    :param address: address where peer was registered
+    &#34;&#34;&#34;
     new_list = []
     for entry in self.available_peers:
         if entry[&#39;peer_id&#39;] != peer_id and entry[&#39;address&#39;] != address:
@@ -693,12 +981,19 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">get_address_of_peer</span></span>(<span>self, peer_id)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>method to get the address of the node where a peer was registered
+:param peer_id: id of peer
+:return: address where the peer was registered</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def get_address_of_peer(self, peer_id):
+    &#34;&#34;&#34;
+    method to get the address of the node where a peer was registered
+    :param peer_id: id of peer
+    :return: address where the peer was registered
+    &#34;&#34;&#34;
     for entry in self.available_peers:
         if entry[&#39;peer_id&#39;] == peer_id:
             return entry[&#39;address&#39;]</code></pre>
@@ -708,12 +1003,19 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">get_best_route_for_destination</span></span>(<span>self, destination)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>method to get the route with lowest costs for given destination
+:param destination: destination address
+:return: routing table entry as dict</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def get_best_route_for_destination(self, destination):
+    &#34;&#34;&#34;
+    method to get the route with lowest costs for given destination
+    :param destination: destination address
+    :return: routing table entry as dict
+    &#34;&#34;&#34;
     if destination not in variables.AVAILABLE_NODES:
         raise ValueError(&#34;destination address &#39;{}&#39; does not exist&#34;.format(destination))
     list_of_available_routes = []
@@ -731,12 +1033,17 @@ def check_message_already_processed(address, processed_list):
 <span>def <span class="ident">get_list_of_all_available_destinations</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>method to get addresses of all available nodes in network
+:return: addresses of all available nodes as list</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def get_list_of_all_available_destinations(self):
+    &#34;&#34;&#34;
+    method to get addresses of all available nodes in network
+    :return: addresses of all available nodes as list
+    &#34;&#34;&#34;
     available_destinations = []
     for entry in self.routing_table:
         if entry[&#39;destination&#39;] not in available_destinations:
@@ -744,34 +1051,21 @@ def check_message_already_processed(address, processed_list):
     return available_destinations</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.routing_table.RoutingTable.get_list_of_best_routes_for_all_available_destinations"><code class="name flex">
-<span>def <span class="ident">get_list_of_best_routes_for_all_available_destinations</span></span>(<span>self)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def get_list_of_best_routes_for_all_available_destinations(self):
-    best_routes = []
-    for entry in self.get_list_of_all_available_destinations():
-        best_route = self.get_best_route_for_destination(entry)
-        if len(best_route) != 0:
-            best_routes.append(best_route)
-    return best_routes</code></pre>
-</details>
-</dd>
 <dt id="lora_multihop.routing_table.RoutingTable.get_peers"><code class="name flex">
 <span>def <span class="ident">get_peers</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>method to get list of peer id's of all available peers
+:return: peer id's as list</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def get_peers(self):
+    &#34;&#34;&#34;
+    method to get list of peer id&#39;s of all available peers
+    :return: peer id&#39;s as list
+    &#34;&#34;&#34;
     return copy.deepcopy(self.available_peers)</code></pre>
 </details>
 </dd>
@@ -809,13 +1103,11 @@ def check_message_already_processed(address, processed_list):
 <li><code><a title="lora_multihop.routing_table.RoutingTable.add_neighbor_to_routing_table" href="#lora_multihop.routing_table.RoutingTable.add_neighbor_to_routing_table">add_neighbor_to_routing_table</a></code></li>
 <li><code><a title="lora_multihop.routing_table.RoutingTable.add_neighbor_with_unsupported_protocol" href="#lora_multihop.routing_table.RoutingTable.add_neighbor_with_unsupported_protocol">add_neighbor_with_unsupported_protocol</a></code></li>
 <li><code><a title="lora_multihop.routing_table.RoutingTable.add_peer" href="#lora_multihop.routing_table.RoutingTable.add_peer">add_peer</a></code></li>
-<li><code><a title="lora_multihop.routing_table.RoutingTable.add_received_message" href="#lora_multihop.routing_table.RoutingTable.add_received_message">add_received_message</a></code></li>
 <li><code><a title="lora_multihop.routing_table.RoutingTable.add_routing_table_entry" href="#lora_multihop.routing_table.RoutingTable.add_routing_table_entry">add_routing_table_entry</a></code></li>
 <li><code><a title="lora_multihop.routing_table.RoutingTable.check_connect_request_entry_already_exists" href="#lora_multihop.routing_table.RoutingTable.check_connect_request_entry_already_exists">check_connect_request_entry_already_exists</a></code></li>
 <li><code><a title="lora_multihop.routing_table.RoutingTable.check_entry_for_peer_exists" href="#lora_multihop.routing_table.RoutingTable.check_entry_for_peer_exists">check_entry_for_peer_exists</a></code></li>
 <li><code><a title="lora_multihop.routing_table.RoutingTable.check_message_already_received" href="#lora_multihop.routing_table.RoutingTable.check_message_already_received">check_message_already_received</a></code></li>
 <li><code><a title="lora_multihop.routing_table.RoutingTable.check_peer_is_already_registered" href="#lora_multihop.routing_table.RoutingTable.check_peer_is_already_registered">check_peer_is_already_registered</a></code></li>
-<li><code><a title="lora_multihop.routing_table.RoutingTable.check_registration_message_already_processed" href="#lora_multihop.routing_table.RoutingTable.check_registration_message_already_processed">check_registration_message_already_processed</a></code></li>
 <li><code><a title="lora_multihop.routing_table.RoutingTable.check_route_request_already_processed" href="#lora_multihop.routing_table.RoutingTable.check_route_request_already_processed">check_route_request_already_processed</a></code></li>
 <li><code><a title="lora_multihop.routing_table.RoutingTable.check_routing_table_entry_exists" href="#lora_multihop.routing_table.RoutingTable.check_routing_table_entry_exists">check_routing_table_entry_exists</a></code></li>
 <li><code><a title="lora_multihop.routing_table.RoutingTable.delete_all_entries_of_destination" href="#lora_multihop.routing_table.RoutingTable.delete_all_entries_of_destination">delete_all_entries_of_destination</a></code></li>
@@ -823,7 +1115,6 @@ def check_message_already_processed(address, processed_list):
 <li><code><a title="lora_multihop.routing_table.RoutingTable.get_address_of_peer" href="#lora_multihop.routing_table.RoutingTable.get_address_of_peer">get_address_of_peer</a></code></li>
 <li><code><a title="lora_multihop.routing_table.RoutingTable.get_best_route_for_destination" href="#lora_multihop.routing_table.RoutingTable.get_best_route_for_destination">get_best_route_for_destination</a></code></li>
 <li><code><a title="lora_multihop.routing_table.RoutingTable.get_list_of_all_available_destinations" href="#lora_multihop.routing_table.RoutingTable.get_list_of_all_available_destinations">get_list_of_all_available_destinations</a></code></li>
-<li><code><a title="lora_multihop.routing_table.RoutingTable.get_list_of_best_routes_for_all_available_destinations" href="#lora_multihop.routing_table.RoutingTable.get_list_of_best_routes_for_all_available_destinations">get_list_of_best_routes_for_all_available_destinations</a></code></li>
 <li><code><a title="lora_multihop.routing_table.RoutingTable.get_peers" href="#lora_multihop.routing_table.RoutingTable.get_peers">get_peers</a></code></li>
 </ul>
 </li>

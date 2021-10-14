@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
 <meta name="generator" content="pdoc 0.10.0" />
-<title>lora_multihop.consumer_producer API documentation</title>
+<title>lora_multihop.serial_connection API documentation</title>
 <meta name="description" content="" />
 <link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/sanitize.min.css" integrity="sha256-PK9q560IAAa6WVRRh76LtCaI8pjTJ2z11v0miyNNjrs=" crossorigin>
 <link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/typography.min.css" integrity="sha256-7l/o7C8jubJiy74VsKTidCy1yBkRtiUGbVkYBylBqUg=" crossorigin>
@@ -19,7 +19,7 @@
 <main>
 <article id="content">
 <header>
-<h1 class="title">Module <code>lora_multihop.consumer_producer</code></h1>
+<h1 class="title">Module <code>lora_multihop.serial_connection</code></h1>
 </header>
 <section id="section-intro">
 <details class="source">
@@ -40,57 +40,78 @@ ser = None
 logging.basicConfig(level=logging.DEBUG, format=&#39;(%(threadName)-9s) %(message)s&#39;, )
 
 BUF_SIZE = 100
-q = queue.Queue(BUF_SIZE)
+writing_q = queue.Queue(BUF_SIZE)
 BUF_SIZE = 1000
 response_q = queue.Queue(BUF_SIZE)
 BUF_SIZE = 1000
 status_q = queue.Queue(BUF_SIZE)
 WRITE_DATA = False
-PRODUCER_THREAD_ACTIVE = True
-CONSUMER_THREAD_ACTIVE = True
+READING_THREAD_ACTIVE = True
+WRITING_THREAD_ACTIVE = True
 
 
 def bytes_to_str(message_in_bytes):
+    &#34;&#34;&#34;
+    converts bytes to string
+    :param message_in_bytes: bytes which should be convert
+    :return: decoded bytes as string using decoding defined under variables.ENCODING
+    &#34;&#34;&#34;
     return message_in_bytes.decode(variables.ENCODING)
 
 
 def str_to_bytes(string_to_convert):
+    &#34;&#34;&#34;
+    encodes string to bytes
+    :param string_to_convert: string which should be encoded
+    :return: encoded string as bytes using encoding defined under variables.ENCODING
+    &#34;&#34;&#34;
     return bytes(string_to_convert, variables.ENCODING)
 
 
-class ProducerThread(threading.Thread):
+class ReadingThread(threading.Thread):
     def __init__(self, name):
-        super(ProducerThread, self).__init__()
+        super(ReadingThread, self).__init__()
         self.name = name
 
     def run(self):
-        global PRODUCER_THREAD_ACTIVE
-        while PRODUCER_THREAD_ACTIVE:
+        &#34;&#34;&#34;
+        starts a thread for reading messages from serial port
+        &#34;&#34;&#34;
+        global READING_THREAD_ACTIVE
+        while READING_THREAD_ACTIVE:
             global WRITE_DATA
-            if q.empty() and not WRITE_DATA:
+            if writing_q.empty() and not WRITE_DATA:
                 if ser.in_waiting:
                     received_raw_message = ser.readline()
-                    logging.debug(f&#39;received: {received_raw_message}&#39;)
-                    response_q.put(received_raw_message)
+                    logging.debug(&#39;received: {}&#39;.format(received_raw_message))
+                    try:
+                        received_raw_message = bytes_to_str(received_raw_message)
+                        response_q.put(received_raw_message)
+                    except UnicodeDecodeError:
+                        logging.debug(f&#34;message &#39;{received_raw_message}&#39; dumped. because it is not encoded in UTF-8&#34;)
 
 
-class ConsumerThread(threading.Thread):
+class WritingThread(threading.Thread):
     def __init__(self, name):
-        super(ConsumerThread, self).__init__()
+        super(WritingThread, self).__init__()
         self.name = name
         return
 
     def run(self):
-        global CONSUMER_THREAD_ACTIVE
-        while CONSUMER_THREAD_ACTIVE:
-            if not q.empty():
+        &#34;&#34;&#34;
+        starts a thread for writing messages to a serial port
+        &#34;&#34;&#34;
+        global WRITING_THREAD_ACTIVE
+        while WRITING_THREAD_ACTIVE:
+            if not writing_q.empty():
                 global WRITE_DATA
                 WRITE_DATA = True
-                command_tuple = q.get()
+                command_tuple = writing_q.get()
                 command = command_tuple[0]
-                command = command + b&#39;\r\n&#39;
+                command = command + &#39;\r\n&#39;
+                command = str_to_bytes(command)
                 verify_list = command_tuple[1]
-                logging.debug(f&#34;sending command &#39;{command}&#39;&#34;)
+                logging.debug(&#34;sending command &#39;{}&#39;&#34;.format(command))
                 ser.write(command)
                 successful = True
                 if len(verify_list) &gt; 0:
@@ -115,10 +136,14 @@ class ConsumerThread(threading.Thread):
 
 
 def start_send_receive_threads(serial_conn):
+    &#34;&#34;&#34;
+    starts threads for communication with serial port
+    :param serial_conn: object for serial connection from pyserial library
+    &#34;&#34;&#34;
     global ser
     ser = serial_conn
-    t1 = ProducerThread(name=&#39;producer&#39;)
-    t2 = ConsumerThread(name=&#39;consumer&#39;)
+    t1 = ReadingThread(name=&#39;producer&#39;)
+    t2 = WritingThread(name=&#39;consumer&#39;)
 
     t1.start()
     time.sleep(0.5)
@@ -126,43 +151,30 @@ def start_send_receive_threads(serial_conn):
     time.sleep(0.5)
 
 
-def config_module(configuration=variables.MODULE_CONFIG):
-    configuration = configuration + &#39;\r\n&#39;
-    if execute_command(configuration, [variables.STATUS_OK]):
-        logging.debug(&#39;module config successfully set&#39;)
-        return True
-    logging.warning(&#34;could not set module config&#34;)
-    return False
-
-
-def get_current_address_from_module():
-    execute_command(variables.GET_ADDR)
-    addr = response_q.get(variables.COMMAND_VERIFICATION_TIMEOUT)
-    print(addr)
-    addr_as_list = addr.split(variables.LORA_MODULE_DELIMITER)
-    if addr_as_list[0].strip() != &#39;AT&#39; or addr_as_list[2].strip() != &#39;OK&#39;:
-        raise ValueError(&#39;could not get address of module&#39;)
-    return addr_as_list[1]
-
-
 def execute_command(command_as_str, verification_list=None):
+    &#34;&#34;&#34;
+    helper function to send AT-command to serial port
+    :param command_as_str: command which should be sent
+    :param verification_list: list of expected results; can also be empty if result of command should not be verified
+    :return: True if expected results equal to results received from serial port, else False
+    &#34;&#34;&#34;
     if verification_list is None:
         verification_list = []
-    q.put((command_as_str, verification_list))
+    writing_q.put((command_as_str, verification_list))
     if len(verification_list) != 0:
         return status_q.get(timeout=variables.COMMAND_VERIFICATION_TIMEOUT)
 
 
 if __name__ == &#39;__main__&#39;:
-    p = ProducerThread(name=&#39;producer&#39;)
-    c = ConsumerThread(name=&#39;consumer&#39;)
+    p = ReadingThread(name=&#39;producer&#39;)
+    c = WritingThread(name=&#39;consumer&#39;)
 
     p.start()
     time.sleep(0.5)
     c.start()
     time.sleep(0.5)
-    q.put((&#39;AT&#39;, [&#39;AT,OK&#39;]))
-    q.put((&#39;AT&#39;, []))
+    writing_q.put((&#39;AT&#39;, [&#39;AT,OK&#39;]))
+    writing_q.put((&#39;AT&#39;, []))
 
     time.sleep(2)
     print(response_q.get())</code></pre>
@@ -175,87 +187,71 @@ if __name__ == &#39;__main__&#39;:
 <section>
 <h2 class="section-title" id="header-functions">Functions</h2>
 <dl>
-<dt id="lora_multihop.consumer_producer.bytes_to_str"><code class="name flex">
+<dt id="lora_multihop.serial_connection.bytes_to_str"><code class="name flex">
 <span>def <span class="ident">bytes_to_str</span></span>(<span>message_in_bytes)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>converts bytes to string
+:param message_in_bytes: bytes which should be convert
+:return: decoded bytes as string using decoding defined under variables.ENCODING</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def bytes_to_str(message_in_bytes):
+    &#34;&#34;&#34;
+    converts bytes to string
+    :param message_in_bytes: bytes which should be convert
+    :return: decoded bytes as string using decoding defined under variables.ENCODING
+    &#34;&#34;&#34;
     return message_in_bytes.decode(variables.ENCODING)</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.consumer_producer.config_module"><code class="name flex">
-<span>def <span class="ident">config_module</span></span>(<span>configuration='AT+CFG=433500000,20,9,7,1,1,0,0,0,0,3000,8,4')</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def config_module(configuration=variables.MODULE_CONFIG):
-    configuration = configuration + &#39;\r\n&#39;
-    if execute_command(configuration, [variables.STATUS_OK]):
-        logging.debug(&#39;module config successfully set&#39;)
-        return True
-    logging.warning(&#34;could not set module config&#34;)
-    return False</code></pre>
-</details>
-</dd>
-<dt id="lora_multihop.consumer_producer.execute_command"><code class="name flex">
+<dt id="lora_multihop.serial_connection.execute_command"><code class="name flex">
 <span>def <span class="ident">execute_command</span></span>(<span>command_as_str, verification_list=None)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>helper function to send AT-command to serial port
+:param command_as_str: command which should be sent
+:param verification_list: list of expected results; can also be empty if result of command should not be verified
+:return: True if expected results equal to results received from serial port, else False</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def execute_command(command_as_str, verification_list=None):
+    &#34;&#34;&#34;
+    helper function to send AT-command to serial port
+    :param command_as_str: command which should be sent
+    :param verification_list: list of expected results; can also be empty if result of command should not be verified
+    :return: True if expected results equal to results received from serial port, else False
+    &#34;&#34;&#34;
     if verification_list is None:
         verification_list = []
-    q.put((command_as_str, verification_list))
+    writing_q.put((command_as_str, verification_list))
     if len(verification_list) != 0:
         return status_q.get(timeout=variables.COMMAND_VERIFICATION_TIMEOUT)</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.consumer_producer.get_current_address_from_module"><code class="name flex">
-<span>def <span class="ident">get_current_address_from_module</span></span>(<span>)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def get_current_address_from_module():
-    execute_command(variables.GET_ADDR)
-    addr = response_q.get(variables.COMMAND_VERIFICATION_TIMEOUT)
-    print(addr)
-    addr_as_list = addr.split(variables.LORA_MODULE_DELIMITER)
-    if addr_as_list[0].strip() != &#39;AT&#39; or addr_as_list[2].strip() != &#39;OK&#39;:
-        raise ValueError(&#39;could not get address of module&#39;)
-    return addr_as_list[1]</code></pre>
-</details>
-</dd>
-<dt id="lora_multihop.consumer_producer.start_send_receive_threads"><code class="name flex">
+<dt id="lora_multihop.serial_connection.start_send_receive_threads"><code class="name flex">
 <span>def <span class="ident">start_send_receive_threads</span></span>(<span>serial_conn)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>starts threads for communication with serial port
+:param serial_conn: object for serial connection from pyserial library</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def start_send_receive_threads(serial_conn):
+    &#34;&#34;&#34;
+    starts threads for communication with serial port
+    :param serial_conn: object for serial connection from pyserial library
+    &#34;&#34;&#34;
     global ser
     ser = serial_conn
-    t1 = ProducerThread(name=&#39;producer&#39;)
-    t2 = ConsumerThread(name=&#39;consumer&#39;)
+    t1 = ReadingThread(name=&#39;producer&#39;)
+    t2 = WritingThread(name=&#39;consumer&#39;)
 
     t1.start()
     time.sleep(0.5)
@@ -263,16 +259,23 @@ if __name__ == &#39;__main__&#39;:
     time.sleep(0.5)</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.consumer_producer.str_to_bytes"><code class="name flex">
+<dt id="lora_multihop.serial_connection.str_to_bytes"><code class="name flex">
 <span>def <span class="ident">str_to_bytes</span></span>(<span>string_to_convert)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>encodes string to bytes
+:param string_to_convert: string which should be encoded
+:return: encoded string as bytes using encoding defined under variables.ENCODING</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def str_to_bytes(string_to_convert):
+    &#34;&#34;&#34;
+    encodes string to bytes
+    :param string_to_convert: string which should be encoded
+    :return: encoded string as bytes using encoding defined under variables.ENCODING
+    &#34;&#34;&#34;
     return bytes(string_to_convert, variables.ENCODING)</code></pre>
 </details>
 </dd>
@@ -281,8 +284,8 @@ if __name__ == &#39;__main__&#39;:
 <section>
 <h2 class="section-title" id="header-classes">Classes</h2>
 <dl>
-<dt id="lora_multihop.consumer_producer.ConsumerThread"><code class="flex name class">
-<span>class <span class="ident">ConsumerThread</span></span>
+<dt id="lora_multihop.serial_connection.ReadingThread"><code class="flex name class">
+<span>class <span class="ident">ReadingThread</span></span>
 <span>(</span><span>name)</span>
 </code></dt>
 <dd>
@@ -307,23 +310,110 @@ else to the thread.</p></div>
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class ConsumerThread(threading.Thread):
+<pre><code class="python">class ReadingThread(threading.Thread):
     def __init__(self, name):
-        super(ConsumerThread, self).__init__()
+        super(ReadingThread, self).__init__()
+        self.name = name
+
+    def run(self):
+        &#34;&#34;&#34;
+        starts a thread for reading messages from serial port
+        &#34;&#34;&#34;
+        global READING_THREAD_ACTIVE
+        while READING_THREAD_ACTIVE:
+            global WRITE_DATA
+            if writing_q.empty() and not WRITE_DATA:
+                if ser.in_waiting:
+                    received_raw_message = ser.readline()
+                    logging.debug(&#39;received: {}&#39;.format(received_raw_message))
+                    try:
+                        received_raw_message = bytes_to_str(received_raw_message)
+                        response_q.put(received_raw_message)
+                    except UnicodeDecodeError:
+                        logging.debug(f&#34;message &#39;{received_raw_message}&#39; dumped. because it is not encoded in UTF-8&#34;)</code></pre>
+</details>
+<h3>Ancestors</h3>
+<ul class="hlist">
+<li>threading.Thread</li>
+</ul>
+<h3>Methods</h3>
+<dl>
+<dt id="lora_multihop.serial_connection.ReadingThread.run"><code class="name flex">
+<span>def <span class="ident">run</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>starts a thread for reading messages from serial port</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def run(self):
+    &#34;&#34;&#34;
+    starts a thread for reading messages from serial port
+    &#34;&#34;&#34;
+    global READING_THREAD_ACTIVE
+    while READING_THREAD_ACTIVE:
+        global WRITE_DATA
+        if writing_q.empty() and not WRITE_DATA:
+            if ser.in_waiting:
+                received_raw_message = ser.readline()
+                logging.debug(&#39;received: {}&#39;.format(received_raw_message))
+                try:
+                    received_raw_message = bytes_to_str(received_raw_message)
+                    response_q.put(received_raw_message)
+                except UnicodeDecodeError:
+                    logging.debug(f&#34;message &#39;{received_raw_message}&#39; dumped. because it is not encoded in UTF-8&#34;)</code></pre>
+</details>
+</dd>
+</dl>
+</dd>
+<dt id="lora_multihop.serial_connection.WritingThread"><code class="flex name class">
+<span>class <span class="ident">WritingThread</span></span>
+<span>(</span><span>name)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>A class that represents a thread of control.</p>
+<p>This class can be safely subclassed in a limited fashion. There are two ways
+to specify the activity: by passing a callable object to the constructor, or
+by overriding the run() method in a subclass.</p>
+<p>This constructor should always be called with keyword arguments. Arguments are:</p>
+<p><em>group</em> should be None; reserved for future extension when a ThreadGroup
+class is implemented.</p>
+<p><em>target</em> is the callable object to be invoked by the run()
+method. Defaults to None, meaning nothing is called.</p>
+<p><em>name</em> is the thread name. By default, a unique name is constructed of
+the form "Thread-N" where N is a small decimal number.</p>
+<p><em>args</em> is the argument tuple for the target invocation. Defaults to ().</p>
+<p><em>kwargs</em> is a dictionary of keyword arguments for the target
+invocation. Defaults to {}.</p>
+<p>If a subclass overrides the constructor, it must make sure to invoke
+the base class constructor (Thread.<strong>init</strong>()) before doing anything
+else to the thread.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">class WritingThread(threading.Thread):
+    def __init__(self, name):
+        super(WritingThread, self).__init__()
         self.name = name
         return
 
     def run(self):
-        global CONSUMER_THREAD_ACTIVE
-        while CONSUMER_THREAD_ACTIVE:
-            if not q.empty():
+        &#34;&#34;&#34;
+        starts a thread for writing messages to a serial port
+        &#34;&#34;&#34;
+        global WRITING_THREAD_ACTIVE
+        while WRITING_THREAD_ACTIVE:
+            if not writing_q.empty():
                 global WRITE_DATA
                 WRITE_DATA = True
-                command_tuple = q.get()
+                command_tuple = writing_q.get()
                 command = command_tuple[0]
-                command = command + b&#39;\r\n&#39;
+                command = command + &#39;\r\n&#39;
+                command = str_to_bytes(command)
                 verify_list = command_tuple[1]
-                logging.debug(f&#34;sending command &#39;{command}&#39;&#34;)
+                logging.debug(&#34;sending command &#39;{}&#39;&#34;.format(command))
                 ser.write(command)
                 successful = True
                 if len(verify_list) &gt; 0:
@@ -352,30 +442,30 @@ else to the thread.</p></div>
 </ul>
 <h3>Methods</h3>
 <dl>
-<dt id="lora_multihop.consumer_producer.ConsumerThread.run"><code class="name flex">
+<dt id="lora_multihop.serial_connection.WritingThread.run"><code class="name flex">
 <span>def <span class="ident">run</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Method representing the thread's activity.</p>
-<p>You may override this method in a subclass. The standard run() method
-invokes the callable object passed to the object's constructor as the
-target argument, if any, with sequential and keyword arguments taken
-from the args and kwargs arguments, respectively.</p></div>
+<div class="desc"><p>starts a thread for writing messages to a serial port</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def run(self):
-    global CONSUMER_THREAD_ACTIVE
-    while CONSUMER_THREAD_ACTIVE:
-        if not q.empty():
+    &#34;&#34;&#34;
+    starts a thread for writing messages to a serial port
+    &#34;&#34;&#34;
+    global WRITING_THREAD_ACTIVE
+    while WRITING_THREAD_ACTIVE:
+        if not writing_q.empty():
             global WRITE_DATA
             WRITE_DATA = True
-            command_tuple = q.get()
+            command_tuple = writing_q.get()
             command = command_tuple[0]
-            command = command + b&#39;\r\n&#39;
+            command = command + &#39;\r\n&#39;
+            command = str_to_bytes(command)
             verify_list = command_tuple[1]
-            logging.debug(f&#34;sending command &#39;{command}&#39;&#34;)
+            logging.debug(&#34;sending command &#39;{}&#39;&#34;.format(command))
             ser.write(command)
             successful = True
             if len(verify_list) &gt; 0:
@@ -401,79 +491,6 @@ from the args and kwargs arguments, respectively.</p></div>
 </dd>
 </dl>
 </dd>
-<dt id="lora_multihop.consumer_producer.ProducerThread"><code class="flex name class">
-<span>class <span class="ident">ProducerThread</span></span>
-<span>(</span><span>name)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>A class that represents a thread of control.</p>
-<p>This class can be safely subclassed in a limited fashion. There are two ways
-to specify the activity: by passing a callable object to the constructor, or
-by overriding the run() method in a subclass.</p>
-<p>This constructor should always be called with keyword arguments. Arguments are:</p>
-<p><em>group</em> should be None; reserved for future extension when a ThreadGroup
-class is implemented.</p>
-<p><em>target</em> is the callable object to be invoked by the run()
-method. Defaults to None, meaning nothing is called.</p>
-<p><em>name</em> is the thread name. By default, a unique name is constructed of
-the form "Thread-N" where N is a small decimal number.</p>
-<p><em>args</em> is the argument tuple for the target invocation. Defaults to ().</p>
-<p><em>kwargs</em> is a dictionary of keyword arguments for the target
-invocation. Defaults to {}.</p>
-<p>If a subclass overrides the constructor, it must make sure to invoke
-the base class constructor (Thread.<strong>init</strong>()) before doing anything
-else to the thread.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class ProducerThread(threading.Thread):
-    def __init__(self, name):
-        super(ProducerThread, self).__init__()
-        self.name = name
-
-    def run(self):
-        global PRODUCER_THREAD_ACTIVE
-        while PRODUCER_THREAD_ACTIVE:
-            global WRITE_DATA
-            if q.empty() and not WRITE_DATA:
-                if ser.in_waiting:
-                    received_raw_message = ser.readline()
-                    logging.debug(f&#39;received: {received_raw_message}&#39;)
-                    response_q.put(received_raw_message)</code></pre>
-</details>
-<h3>Ancestors</h3>
-<ul class="hlist">
-<li>threading.Thread</li>
-</ul>
-<h3>Methods</h3>
-<dl>
-<dt id="lora_multihop.consumer_producer.ProducerThread.run"><code class="name flex">
-<span>def <span class="ident">run</span></span>(<span>self)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Method representing the thread's activity.</p>
-<p>You may override this method in a subclass. The standard run() method
-invokes the callable object passed to the object's constructor as the
-target argument, if any, with sequential and keyword arguments taken
-from the args and kwargs arguments, respectively.</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def run(self):
-    global PRODUCER_THREAD_ACTIVE
-    while PRODUCER_THREAD_ACTIVE:
-        global WRITE_DATA
-        if q.empty() and not WRITE_DATA:
-            if ser.in_waiting:
-                received_raw_message = ser.readline()
-                logging.debug(f&#39;received: {received_raw_message}&#39;)
-                response_q.put(received_raw_message)</code></pre>
-</details>
-</dd>
-</dl>
-</dd>
 </dl>
 </section>
 </article>
@@ -490,26 +507,24 @@ from the args and kwargs arguments, respectively.</p></div>
 </li>
 <li><h3><a href="#header-functions">Functions</a></h3>
 <ul class="">
-<li><code><a title="lora_multihop.consumer_producer.bytes_to_str" href="#lora_multihop.consumer_producer.bytes_to_str">bytes_to_str</a></code></li>
-<li><code><a title="lora_multihop.consumer_producer.config_module" href="#lora_multihop.consumer_producer.config_module">config_module</a></code></li>
-<li><code><a title="lora_multihop.consumer_producer.execute_command" href="#lora_multihop.consumer_producer.execute_command">execute_command</a></code></li>
-<li><code><a title="lora_multihop.consumer_producer.get_current_address_from_module" href="#lora_multihop.consumer_producer.get_current_address_from_module">get_current_address_from_module</a></code></li>
-<li><code><a title="lora_multihop.consumer_producer.start_send_receive_threads" href="#lora_multihop.consumer_producer.start_send_receive_threads">start_send_receive_threads</a></code></li>
-<li><code><a title="lora_multihop.consumer_producer.str_to_bytes" href="#lora_multihop.consumer_producer.str_to_bytes">str_to_bytes</a></code></li>
+<li><code><a title="lora_multihop.serial_connection.bytes_to_str" href="#lora_multihop.serial_connection.bytes_to_str">bytes_to_str</a></code></li>
+<li><code><a title="lora_multihop.serial_connection.execute_command" href="#lora_multihop.serial_connection.execute_command">execute_command</a></code></li>
+<li><code><a title="lora_multihop.serial_connection.start_send_receive_threads" href="#lora_multihop.serial_connection.start_send_receive_threads">start_send_receive_threads</a></code></li>
+<li><code><a title="lora_multihop.serial_connection.str_to_bytes" href="#lora_multihop.serial_connection.str_to_bytes">str_to_bytes</a></code></li>
 </ul>
 </li>
 <li><h3><a href="#header-classes">Classes</a></h3>
 <ul>
 <li>
-<h4><code><a title="lora_multihop.consumer_producer.ConsumerThread" href="#lora_multihop.consumer_producer.ConsumerThread">ConsumerThread</a></code></h4>
+<h4><code><a title="lora_multihop.serial_connection.ReadingThread" href="#lora_multihop.serial_connection.ReadingThread">ReadingThread</a></code></h4>
 <ul class="">
-<li><code><a title="lora_multihop.consumer_producer.ConsumerThread.run" href="#lora_multihop.consumer_producer.ConsumerThread.run">run</a></code></li>
+<li><code><a title="lora_multihop.serial_connection.ReadingThread.run" href="#lora_multihop.serial_connection.ReadingThread.run">run</a></code></li>
 </ul>
 </li>
 <li>
-<h4><code><a title="lora_multihop.consumer_producer.ProducerThread" href="#lora_multihop.consumer_producer.ProducerThread">ProducerThread</a></code></h4>
+<h4><code><a title="lora_multihop.serial_connection.WritingThread" href="#lora_multihop.serial_connection.WritingThread">WritingThread</a></code></h4>
 <ul class="">
-<li><code><a title="lora_multihop.consumer_producer.ProducerThread.run" href="#lora_multihop.consumer_producer.ProducerThread.run">run</a></code></li>
+<li><code><a title="lora_multihop.serial_connection.WritingThread.run" href="#lora_multihop.serial_connection.WritingThread.run">run</a></code></li>
 </ul>
 </li>
 </ul>

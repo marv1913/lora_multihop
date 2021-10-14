@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
 <meta name="generator" content="pdoc 0.10.0" />
-<title>lora_multihop.protocol_lite API documentation</title>
+<title>lora_multihop.protocol API documentation</title>
 <meta name="description" content="" />
 <link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/sanitize.min.css" integrity="sha256-PK9q560IAAa6WVRRh76LtCaI8pjTJ2z11v0miyNNjrs=" crossorigin>
 <link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/typography.min.css" integrity="sha256-7l/o7C8jubJiy74VsKTidCy1yBkRtiUGbVkYBylBqUg=" crossorigin>
@@ -19,30 +19,31 @@
 <main>
 <article id="content">
 <header>
-<h1 class="title">Module <code>lora_multihop.protocol_lite</code></h1>
+<h1 class="title">Module <code>lora_multihop.protocol</code></h1>
 </header>
 <section id="section-intro">
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">import hashlib
+<pre><code class="python">import base64
 import logging
 import random
 import signal
 import threading
 import time
+import traceback
 from queue import Queue
 from contextlib import contextmanager
 
-from lora_multihop import java_ipc, consumer_producer, header, variables
+from lora_multihop import ipc, serial_connection, header, variables
 from lora_multihop.header import RegistrationHeader, ConnectRequestHeader, DisconnectRequestHeader
 from lora_multihop.routing_table import RoutingTable
 
 __author__ = &#34;Marvin Rausch&#34;
 
 
-class ProtocolLite:
+class Protocol:
     PROCESS_INCOMING_MESSAGES = True
     VERIFICATION_TIMEOUT = 25
     PAUSE_PROCESSING_INCOMING_MESSAGES = False
@@ -71,31 +72,23 @@ class ProtocolLite:
         sends a string to LoRa network
         @param header_str: message to send
         &#34;&#34;&#34;
-        self.send_header_as_bytes(consumer_producer.str_to_bytes(header_str))
-
-    def send_header_as_bytes(self, header_in_bytes):
-        &#34;&#34;&#34;
-        send bytes message to LoRa network
-        :param header_in_bytes: payload
-        &#34;&#34;&#34;
         wait_random_time()
-        length = str(len(header_in_bytes))
-        consumer_producer.q.put((b&#39;AT+SEND=&#39; + consumer_producer.str_to_bytes(length), [&#39;AT,OK&#39;]))
-        if consumer_producer.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
-            consumer_producer.q.put((header_in_bytes, [&#39;AT,SENDING&#39;, &#39;AT,SENDED&#39;]))
-            if consumer_producer.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
-                logging.debug(f&#34;sent header &#39;{header_in_bytes}&#39;.&#34;)
+        serial_connection.writing_q.put((&#39;AT+SEND={}&#39;.format(str(len(header_str))), [&#39;AT,OK&#39;]))
+        if serial_connection.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
+            serial_connection.writing_q.put((header_str, [&#39;AT,SENDING&#39;, &#39;AT,SENDED&#39;]))
+            if serial_connection.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
+                logging.debug(&#34;sent header &#39;{}&#39;.&#34;.format(header_str))
                 return
-        logging.debug(f&#34;could not send header &#39;{header_in_bytes}&#39;, because got invalid status from lora module&#34;)
+        logging.debug(&#34;could not send header &#39;{}&#39;, because got invalid status from lora module&#34;.format(header_str))
 
     def process_incoming_message(self):
         &#34;&#34;&#34;
         get messages from LoRa module, create header object and call appropriate method to process the received message
         &#34;&#34;&#34;
         while self.PROCESS_INCOMING_MESSAGES:
-            if not consumer_producer.response_q.empty() and not self.PAUSE_PROCESSING_INCOMING_MESSAGES:
-                raw_message = consumer_producer.response_q.get()
-                print(f&#39;process: {raw_message}&#39;)
+            if not serial_connection.response_q.empty() and not self.PAUSE_PROCESSING_INCOMING_MESSAGES:
+                raw_message = serial_connection.response_q.get()
+                logging.debug(f&#39;process: {raw_message}&#39;)
                 try:
                     header_obj = header.create_header_obj_from_raw_message(raw_message)
                     if header_obj.ttl &gt; 1:
@@ -118,9 +111,10 @@ class ProtocolLite:
                             self.process_disconnect_request_header(header_obj)
                 except ValueError as e:
                     logging.warning(str(e))
+                    traceback.print_exc()
                     try:
                         logging.debug(&#39;try to add received signal to unsupported devices list...&#39;)
-                        addr = header.get_received_from_value(consumer_producer.bytes_to_str(raw_message))
+                        addr = header.get_received_from_value(raw_message)
                         self.routing_table.add_neighbor_with_unsupported_protocol(addr)
                     except ValueError as e:
                         logging.warning(str(e))
@@ -134,8 +128,7 @@ class ProtocolLite:
             destination = self.connected_node
             best_route = self.routing_table.get_best_route_for_destination(destination)
             if len(best_route) == 0:
-                logging.info(
-                    &#39;could not find a route to {}. Sending route request...&#39;.format(destination))
+                logging.info(&#39;could not find a route to {}. Sending route request...&#39;.format(destination))
                 if self.send_route_request_message(destination):
                     best_route = self.routing_table.get_best_route_for_destination(destination)
                 else:
@@ -143,13 +136,14 @@ class ProtocolLite:
                     return
             self.message_counter += 1
             header_obj = header.MessageHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, destination,
-                                              best_route[&#39;next_node&#39;], self.message_counter, payload)
+                                              best_route[&#39;next_node&#39;], self.message_counter,
+                                              base64.b64encode(payload).decode(variables.ENCODING))
             attempt = 0
             self.add_message_to_waiting_acknowledgement_list(header_obj)
             message_confirmed = False
             while attempt &lt; 3 and not message_confirmed:
                 logging.debug(f&#39;attempt: {attempt}&#39;)
-                self.send_header_as_bytes(header_obj.get_header_in_bytes())
+                self.send_header(header_obj.get_header_str())
                 attempt_count_received_ack = 0
                 while attempt_count_received_ack &lt; 10:
                     if header_obj.message_id not in self.MESSAGES_ACKNOWLEDGMENT:
@@ -254,7 +248,8 @@ class ProtocolLite:
             if self.routing_table.check_message_already_received(header_obj.source, header_obj.message_id):
                 self.send_header(ack_header_str)
             else:
-                self.received_messages_queue.put(header_obj.payload)
+                logging.debug(f&#39;payload: {str(header_obj.payload)}&#39;)
+                self.received_messages_queue.put(base64.b64decode(header_obj.payload))
                 # send acknowledge message
                 logging.debug(&#39;sending acknowledgement&#39;)
                 self.send_header(ack_header_str)
@@ -262,14 +257,13 @@ class ProtocolLite:
         elif header_obj.next_node == variables.MY_ADDRESS and header_obj.destination != variables.MY_ADDRESS:
             best_route = self.routing_table.get_best_route_for_destination(header_obj.destination)
             if len(best_route) == 0:
-                logging.info(
-                    &#39;no routing table entry for {} to forward message found&#39;.format(header_obj.next_node))
+                logging.info(&#39;no routing table entry for {} to forward message found&#39;.format(header_obj.next_node))
             else:
                 header_obj.next_node = best_route[&#39;next_node&#39;]
                 logging.info(&#39;forwarding message from {source} to {destination} over hop {next_node}&#39;.format(
                     source=header_obj.source, destination=header_obj.destination, next_node=header_obj.next_node))
                 header_obj.ttl = header_obj.ttl - 1
-                self.send_header_as_bytes(header_obj.get_header_in_bytes())
+                self.send_header(header_obj.get_header_str())
         else:
             logging.debug(&#39;ignoring message: {}&#39;.format(str(header_obj)))
 
@@ -298,13 +292,6 @@ class ProtocolLite:
                 header_obj.hops = header_obj.hops + 1
                 header_obj.ttl = header_obj.ttl - 1
                 self.send_header(header_obj.get_header_str())
-            else:
-                # send route error, because there is no route to forward route reply message to
-                # source node of route request
-                logging.info(
-                    &#39;can not forward route reply message, because there is no route to forward route reply message to&#39;)
-                # source node of route request&#39;)
-                # self.send_route_error(header_obj.source)
 
     def process_route_error_header(self, header_obj):
         &#34;&#34;&#34;
@@ -327,7 +314,7 @@ class ProtocolLite:
         @param header_obj: message acknowledgement header object
         &#34;&#34;&#34;
         if header_obj.destination == variables.MY_ADDRESS:
-            self.edit_message_acknowledgment_list(header_obj)
+            self.delete_from_ack_list(header_obj.message_id)
         header_obj.ttl -= 1
         logging.debug(&#39;forward ack message&#39;)
         if header_obj.destination != variables.MY_ADDRESS:
@@ -336,12 +323,12 @@ class ProtocolLite:
             logging.debug(f&#39;do not forward ack message, because end node was my address&#39;)
 
     def process_registration_header(self, header_obj):
+        &#34;&#34;&#34;
+        processes registration message header
+        :param header_obj: object of class RegistrationMessageHeader
+        &#34;&#34;&#34;
         if header_obj.source != variables.MY_ADDRESS:
             header_obj.ttl -= 1
-            # TODO check whether this code could be used
-            # if self.routing_table.check_registration_message_already_processed(header_obj.source):
-            #     logging.debug(&#39;registration message already has been processed&#39;)
-            # else:
             self.routing_table.add_address_to_processed_registration_messages_list(header_obj.source)
             if header_obj.subscribe:
                 logging.debug(&#39;registered new peer&#39;)
@@ -355,15 +342,18 @@ class ProtocolLite:
             self.received_own_registration_message = True
 
     def process_connect_request_header(self, header_obj):
-        # TODO make sure same request is not forwarded multiple times
+        &#34;&#34;&#34;
+        processes connect request header
+        :param header_obj: object of class ConnectRequestHeader
+        &#34;&#34;&#34;
         if header_obj.received_from != variables.MY_ADDRESS:
             if header_obj.end_node == variables.MY_ADDRESS:
                 self.connected_node = header_obj.source
                 # send connect request to java side
                 logging.debug(&#34;send connect request to java side&#34;)
                 self.sending_queue.put(
-                    java_ipc.create_connect_request_message(header_obj.source_peer_id, header_obj.target_peer_id,
-                                                            header_obj.timeout))
+                    ipc.create_connect_request_message(header_obj.source_peer_id, header_obj.target_peer_id,
+                                                       header_obj.timeout))
             elif header_obj.next_node == variables.MY_ADDRESS:
                 logging.debug(&#39;forward connect request header&#39;)
                 route = self.routing_table.get_best_route_for_destination(header_obj.end_node)
@@ -376,14 +366,17 @@ class ProtocolLite:
                                   f&#39;for destination address {header_obj.end_node}&#39;)
 
     def process_disconnect_request_header(self, header_obj):
-        # TODO make sure same request is not forwarded multiple times
+        &#34;&#34;&#34;
+        processes disconnect request header
+        :param header_obj: object of class DisconnectRequestHeader
+        &#34;&#34;&#34;
         if header_obj.received_from != variables.MY_ADDRESS:
             if header_obj.end_node == variables.MY_ADDRESS:
                 self.connected_node = header_obj.source
                 # send connect request to java side
                 logging.debug(&#34;send disconnect request to java side&#34;)
                 self.sending_queue.put(
-                    java_ipc.create_disconnect_request_message(header_obj.source_peer_id, header_obj.target_peer_id))
+                    ipc.create_disconnect_request_message(header_obj.source_peer_id, header_obj.target_peer_id))
             elif header_obj.next_node == variables.MY_ADDRESS:
                 logging.debug(&#39;forward disconnect request header&#39;)
                 route = self.routing_table.get_best_route_for_destination(header_obj.end_node)
@@ -396,6 +389,12 @@ class ProtocolLite:
                                   f&#39;for destination address {header_obj.end_node}&#39;)
 
     def send_connect_request_header(self, source_peer_id, target_peer_id, timeout_in_sec):
+        &#34;&#34;&#34;
+        sends connect request
+        :param source_peer_id: peer id of source peer
+        :param target_peer_id: peer id of target peer
+        :param timeout_in_sec: timeout in seconds
+        &#34;&#34;&#34;
         # look for address of source peer id and check whether source peer is already registered
         # wait until timeout for ConnectRequestHeader of other HubConnector
         self.check_peers(source_peer_id, target_peer_id)
@@ -416,8 +415,11 @@ class ProtocolLite:
                                                   timeout_in_sec).get_header_str())
 
     def send_disconnect_request_header(self, source_peer_id, target_peer_id):
-        # look for address of source peer id and check whether source peer is already registered
-        # TODO wait until timeout for ConnectRequestHeader of other HubConnector
+        &#34;&#34;&#34;
+        sends disconnect request
+        :param source_peer_id: peer id of source peer
+        :param target_peer_id: peer id of target peer
+        &#34;&#34;&#34;
         self.check_peers(source_peer_id, target_peer_id)
         end_node = self.routing_table.get_address_of_peer(target_peer_id)
         route = self.routing_table.get_best_route_for_destination(end_node)
@@ -432,15 +434,24 @@ class ProtocolLite:
                                                  route[&#39;next_node&#39;], source_peer_id, target_peer_id).get_header_str())
 
     def check_peers(self, source_peer_id, target_peer_id):
+        &#34;&#34;&#34;
+        helper function to check whether peers are already registered; raises ValueError if peer is not registered
+        :param source_peer_id: peer id of source peer
+        :param target_peer_id: peer id of target peer
+        &#34;&#34;&#34;
         if not self.routing_table.check_peer_is_already_registered(source_peer_id):
             raise ValueError(f&#34;source peer &#39;{source_peer_id}&#39; is not registered&#34;)
         elif not self.routing_table.check_peer_is_already_registered(target_peer_id):
             raise ValueError(f&#34;target peer &#39;{target_peer_id}&#39; is not registered&#34;)
         elif self.routing_table.get_address_of_peer(source_peer_id) != variables.MY_ADDRESS:
-            # TODO is source_peer always registered on own instance?
             raise ValueError(&#39;source peer is not registered on this node&#39;)
 
     def send_registration_message(self, subscribe, peer_id):
+        &#34;&#34;&#34;
+        function to registers/unregister a peer
+        :param subscribe: if True peer will be registered on network; else the peer will be unregistered
+        :param peer_id: id of peer
+        &#34;&#34;&#34;
         if subscribe:
             self.routing_table.add_peer(peer_id, variables.MY_ADDRESS)
         else:
@@ -464,29 +475,32 @@ class ProtocolLite:
             if received_own_request:
                 return
 
-    def send_route_error(self, end_node):
-        route_error_header_obj = header.RouteErrorHeader(None, variables.MY_ADDRESS, 9, end_node)
-        self.send_header(route_error_header_obj.get_header_str())
-
-    def send_message_acknowledgement(self, source, destination, payload):
-        ack_header_obj = header.MessageAcknowledgeHeader(None, destination, 9, calculate_ack_id(source, payload))
-        self.send_header(ack_header_obj.get_header_str())
-
     def stop(self):
+        &#34;&#34;&#34;
+        function to shutdown background threads:
+
+        thread for reading from serial port
+        thread for writing to serial port
+        thread for processing received header messages
+        &#34;&#34;&#34;
         self.PROCESS_INCOMING_MESSAGES = False
-        consumer_producer.CONSUMER_THREAD_ACTIVE = False
-        consumer_producer.PRODUCER_THREAD_ACTIVE = False
+        serial_connection.WRITING_THREAD_ACTIVE = False
+        serial_connection.READING_THREAD_ACTIVE = False
 
     def add_message_to_waiting_acknowledgement_list(self, message_header_obj):
+        &#34;&#34;&#34;
+        adds the message id of a message to the list of pending acknowledgements
+        :param message_header_obj: message as object of class MessageHeader
+        &#34;&#34;&#34;
         message_id = message_header_obj.message_id
         logging.debug(f&#34;adding &#39;{message_id}&#39; to ack list&#34;)
         self.MESSAGES_ACKNOWLEDGMENT.append(message_id)
-        return
-
-    def edit_message_acknowledgment_list(self, message_ack_header_obj):
-        self.delete_from_ack_list(message_ack_header_obj.message_id)
 
     def delete_from_ack_list(self, ack_id):
+        &#34;&#34;&#34;
+        remove message id from list of pending acknowledgements
+        :param ack_id: message id which should be deleted
+        &#34;&#34;&#34;
         logging.debug(f&#39;remove {ack_id} from ack list&#39;)
         try:
             self.MESSAGES_ACKNOWLEDGMENT.remove(int(ack_id))
@@ -496,6 +510,11 @@ class ProtocolLite:
 
 @contextmanager
 def timeout(time_in_sec):
+    &#34;&#34;&#34;
+    could be used as context manager to run code snippet until a custom timeout; calls raise_timeout function after
+    timeout
+    :param time_in_sec: specifies timeout in seconds
+    &#34;&#34;&#34;
     # Register a function to raise a TimeoutError on the signal.
     signal.signal(signal.SIGALRM, raise_timeout)
     # Schedule the signal to be sent after ``time``.
@@ -511,25 +530,19 @@ def timeout(time_in_sec):
 
 
 def raise_timeout(signum, frame):
+    &#34;&#34;&#34;
+    raises TimeoutError; is called by timeout context manager; to change timeout behavior edit code in this function
+    &#34;&#34;&#34;
     raise TimeoutError
 
 
 def wait_random_time():
+    &#34;&#34;&#34;
+    sleep for a random time; timespan is between 0 and variables.MAX_SLEEP_TIME seconds
+    &#34;&#34;&#34;
     sleep_time = random.uniform(0, variables.MAX_SLEEP_TIME)
     logging.debug(&#39;waiting {} seconds before sending&#39;.format(sleep_time))
-    time.sleep(sleep_time)
-
-
-def calculate_ack_id(address, payload):
-    hash_object = hashlib.md5(bytes(address + payload, variables.ENCODING))
-    return hash_object.hexdigest()[:6]
-
-
-class ConnectRequest:
-
-    def __init__(self, source_peer_id, target_peer_id):
-        self.source_peer_id = source_peer_id
-        self.target_peer_id = target_peer_id</code></pre>
+    time.sleep(sleep_time)</code></pre>
 </details>
 </section>
 <section>
@@ -539,44 +552,40 @@ class ConnectRequest:
 <section>
 <h2 class="section-title" id="header-functions">Functions</h2>
 <dl>
-<dt id="lora_multihop.protocol_lite.calculate_ack_id"><code class="name flex">
-<span>def <span class="ident">calculate_ack_id</span></span>(<span>address, payload)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def calculate_ack_id(address, payload):
-    hash_object = hashlib.md5(bytes(address + payload, variables.ENCODING))
-    return hash_object.hexdigest()[:6]</code></pre>
-</details>
-</dd>
-<dt id="lora_multihop.protocol_lite.raise_timeout"><code class="name flex">
+<dt id="lora_multihop.protocol.raise_timeout"><code class="name flex">
 <span>def <span class="ident">raise_timeout</span></span>(<span>signum, frame)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>raises TimeoutError; is called by timeout context manager; to change timeout behavior edit code in this function</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def raise_timeout(signum, frame):
+    &#34;&#34;&#34;
+    raises TimeoutError; is called by timeout context manager; to change timeout behavior edit code in this function
+    &#34;&#34;&#34;
     raise TimeoutError</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.timeout"><code class="name flex">
+<dt id="lora_multihop.protocol.timeout"><code class="name flex">
 <span>def <span class="ident">timeout</span></span>(<span>time_in_sec)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>could be used as context manager to run code snippet until a custom timeout; calls raise_timeout function after
+timeout
+:param time_in_sec: specifies timeout in seconds</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">@contextmanager
 def timeout(time_in_sec):
+    &#34;&#34;&#34;
+    could be used as context manager to run code snippet until a custom timeout; calls raise_timeout function after
+    timeout
+    :param time_in_sec: specifies timeout in seconds
+    &#34;&#34;&#34;
     # Register a function to raise a TimeoutError on the signal.
     signal.signal(signal.SIGALRM, raise_timeout)
     # Schedule the signal to be sent after ``time``.
@@ -591,16 +600,19 @@ def timeout(time_in_sec):
         signal.signal(signal.SIGALRM, signal.SIG_IGN)</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.wait_random_time"><code class="name flex">
+<dt id="lora_multihop.protocol.wait_random_time"><code class="name flex">
 <span>def <span class="ident">wait_random_time</span></span>(<span>)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>sleep for a random time; timespan is between 0 and variables.MAX_SLEEP_TIME seconds</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def wait_random_time():
+    &#34;&#34;&#34;
+    sleep for a random time; timespan is between 0 and variables.MAX_SLEEP_TIME seconds
+    &#34;&#34;&#34;
     sleep_time = random.uniform(0, variables.MAX_SLEEP_TIME)
     logging.debug(&#39;waiting {} seconds before sending&#39;.format(sleep_time))
     time.sleep(sleep_time)</code></pre>
@@ -611,9 +623,8 @@ def timeout(time_in_sec):
 <section>
 <h2 class="section-title" id="header-classes">Classes</h2>
 <dl>
-<dt id="lora_multihop.protocol_lite.ConnectRequest"><code class="flex name class">
-<span>class <span class="ident">ConnectRequest</span></span>
-<span>(</span><span>source_peer_id, target_peer_id)</span>
+<dt id="lora_multihop.protocol.Protocol"><code class="flex name class">
+<span>class <span class="ident">Protocol</span></span>
 </code></dt>
 <dd>
 <div class="desc"></div>
@@ -621,23 +632,7 @@ def timeout(time_in_sec):
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class ConnectRequest:
-
-    def __init__(self, source_peer_id, target_peer_id):
-        self.source_peer_id = source_peer_id
-        self.target_peer_id = target_peer_id</code></pre>
-</details>
-</dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite"><code class="flex name class">
-<span>class <span class="ident">ProtocolLite</span></span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">class ProtocolLite:
+<pre><code class="python">class Protocol:
     PROCESS_INCOMING_MESSAGES = True
     VERIFICATION_TIMEOUT = 25
     PAUSE_PROCESSING_INCOMING_MESSAGES = False
@@ -666,31 +661,23 @@ def timeout(time_in_sec):
         sends a string to LoRa network
         @param header_str: message to send
         &#34;&#34;&#34;
-        self.send_header_as_bytes(consumer_producer.str_to_bytes(header_str))
-
-    def send_header_as_bytes(self, header_in_bytes):
-        &#34;&#34;&#34;
-        send bytes message to LoRa network
-        :param header_in_bytes: payload
-        &#34;&#34;&#34;
         wait_random_time()
-        length = str(len(header_in_bytes))
-        consumer_producer.q.put((b&#39;AT+SEND=&#39; + consumer_producer.str_to_bytes(length), [&#39;AT,OK&#39;]))
-        if consumer_producer.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
-            consumer_producer.q.put((header_in_bytes, [&#39;AT,SENDING&#39;, &#39;AT,SENDED&#39;]))
-            if consumer_producer.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
-                logging.debug(f&#34;sent header &#39;{header_in_bytes}&#39;.&#34;)
+        serial_connection.writing_q.put((&#39;AT+SEND={}&#39;.format(str(len(header_str))), [&#39;AT,OK&#39;]))
+        if serial_connection.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
+            serial_connection.writing_q.put((header_str, [&#39;AT,SENDING&#39;, &#39;AT,SENDED&#39;]))
+            if serial_connection.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
+                logging.debug(&#34;sent header &#39;{}&#39;.&#34;.format(header_str))
                 return
-        logging.debug(f&#34;could not send header &#39;{header_in_bytes}&#39;, because got invalid status from lora module&#34;)
+        logging.debug(&#34;could not send header &#39;{}&#39;, because got invalid status from lora module&#34;.format(header_str))
 
     def process_incoming_message(self):
         &#34;&#34;&#34;
         get messages from LoRa module, create header object and call appropriate method to process the received message
         &#34;&#34;&#34;
         while self.PROCESS_INCOMING_MESSAGES:
-            if not consumer_producer.response_q.empty() and not self.PAUSE_PROCESSING_INCOMING_MESSAGES:
-                raw_message = consumer_producer.response_q.get()
-                print(f&#39;process: {raw_message}&#39;)
+            if not serial_connection.response_q.empty() and not self.PAUSE_PROCESSING_INCOMING_MESSAGES:
+                raw_message = serial_connection.response_q.get()
+                logging.debug(f&#39;process: {raw_message}&#39;)
                 try:
                     header_obj = header.create_header_obj_from_raw_message(raw_message)
                     if header_obj.ttl &gt; 1:
@@ -713,9 +700,10 @@ def timeout(time_in_sec):
                             self.process_disconnect_request_header(header_obj)
                 except ValueError as e:
                     logging.warning(str(e))
+                    traceback.print_exc()
                     try:
                         logging.debug(&#39;try to add received signal to unsupported devices list...&#39;)
-                        addr = header.get_received_from_value(consumer_producer.bytes_to_str(raw_message))
+                        addr = header.get_received_from_value(raw_message)
                         self.routing_table.add_neighbor_with_unsupported_protocol(addr)
                     except ValueError as e:
                         logging.warning(str(e))
@@ -729,8 +717,7 @@ def timeout(time_in_sec):
             destination = self.connected_node
             best_route = self.routing_table.get_best_route_for_destination(destination)
             if len(best_route) == 0:
-                logging.info(
-                    &#39;could not find a route to {}. Sending route request...&#39;.format(destination))
+                logging.info(&#39;could not find a route to {}. Sending route request...&#39;.format(destination))
                 if self.send_route_request_message(destination):
                     best_route = self.routing_table.get_best_route_for_destination(destination)
                 else:
@@ -738,13 +725,14 @@ def timeout(time_in_sec):
                     return
             self.message_counter += 1
             header_obj = header.MessageHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, destination,
-                                              best_route[&#39;next_node&#39;], self.message_counter, payload)
+                                              best_route[&#39;next_node&#39;], self.message_counter,
+                                              base64.b64encode(payload).decode(variables.ENCODING))
             attempt = 0
             self.add_message_to_waiting_acknowledgement_list(header_obj)
             message_confirmed = False
             while attempt &lt; 3 and not message_confirmed:
                 logging.debug(f&#39;attempt: {attempt}&#39;)
-                self.send_header_as_bytes(header_obj.get_header_in_bytes())
+                self.send_header(header_obj.get_header_str())
                 attempt_count_received_ack = 0
                 while attempt_count_received_ack &lt; 10:
                     if header_obj.message_id not in self.MESSAGES_ACKNOWLEDGMENT:
@@ -849,7 +837,8 @@ def timeout(time_in_sec):
             if self.routing_table.check_message_already_received(header_obj.source, header_obj.message_id):
                 self.send_header(ack_header_str)
             else:
-                self.received_messages_queue.put(header_obj.payload)
+                logging.debug(f&#39;payload: {str(header_obj.payload)}&#39;)
+                self.received_messages_queue.put(base64.b64decode(header_obj.payload))
                 # send acknowledge message
                 logging.debug(&#39;sending acknowledgement&#39;)
                 self.send_header(ack_header_str)
@@ -857,14 +846,13 @@ def timeout(time_in_sec):
         elif header_obj.next_node == variables.MY_ADDRESS and header_obj.destination != variables.MY_ADDRESS:
             best_route = self.routing_table.get_best_route_for_destination(header_obj.destination)
             if len(best_route) == 0:
-                logging.info(
-                    &#39;no routing table entry for {} to forward message found&#39;.format(header_obj.next_node))
+                logging.info(&#39;no routing table entry for {} to forward message found&#39;.format(header_obj.next_node))
             else:
                 header_obj.next_node = best_route[&#39;next_node&#39;]
                 logging.info(&#39;forwarding message from {source} to {destination} over hop {next_node}&#39;.format(
                     source=header_obj.source, destination=header_obj.destination, next_node=header_obj.next_node))
                 header_obj.ttl = header_obj.ttl - 1
-                self.send_header_as_bytes(header_obj.get_header_in_bytes())
+                self.send_header(header_obj.get_header_str())
         else:
             logging.debug(&#39;ignoring message: {}&#39;.format(str(header_obj)))
 
@@ -893,13 +881,6 @@ def timeout(time_in_sec):
                 header_obj.hops = header_obj.hops + 1
                 header_obj.ttl = header_obj.ttl - 1
                 self.send_header(header_obj.get_header_str())
-            else:
-                # send route error, because there is no route to forward route reply message to
-                # source node of route request
-                logging.info(
-                    &#39;can not forward route reply message, because there is no route to forward route reply message to&#39;)
-                # source node of route request&#39;)
-                # self.send_route_error(header_obj.source)
 
     def process_route_error_header(self, header_obj):
         &#34;&#34;&#34;
@@ -922,7 +903,7 @@ def timeout(time_in_sec):
         @param header_obj: message acknowledgement header object
         &#34;&#34;&#34;
         if header_obj.destination == variables.MY_ADDRESS:
-            self.edit_message_acknowledgment_list(header_obj)
+            self.delete_from_ack_list(header_obj.message_id)
         header_obj.ttl -= 1
         logging.debug(&#39;forward ack message&#39;)
         if header_obj.destination != variables.MY_ADDRESS:
@@ -931,12 +912,12 @@ def timeout(time_in_sec):
             logging.debug(f&#39;do not forward ack message, because end node was my address&#39;)
 
     def process_registration_header(self, header_obj):
+        &#34;&#34;&#34;
+        processes registration message header
+        :param header_obj: object of class RegistrationMessageHeader
+        &#34;&#34;&#34;
         if header_obj.source != variables.MY_ADDRESS:
             header_obj.ttl -= 1
-            # TODO check whether this code could be used
-            # if self.routing_table.check_registration_message_already_processed(header_obj.source):
-            #     logging.debug(&#39;registration message already has been processed&#39;)
-            # else:
             self.routing_table.add_address_to_processed_registration_messages_list(header_obj.source)
             if header_obj.subscribe:
                 logging.debug(&#39;registered new peer&#39;)
@@ -950,15 +931,18 @@ def timeout(time_in_sec):
             self.received_own_registration_message = True
 
     def process_connect_request_header(self, header_obj):
-        # TODO make sure same request is not forwarded multiple times
+        &#34;&#34;&#34;
+        processes connect request header
+        :param header_obj: object of class ConnectRequestHeader
+        &#34;&#34;&#34;
         if header_obj.received_from != variables.MY_ADDRESS:
             if header_obj.end_node == variables.MY_ADDRESS:
                 self.connected_node = header_obj.source
                 # send connect request to java side
                 logging.debug(&#34;send connect request to java side&#34;)
                 self.sending_queue.put(
-                    java_ipc.create_connect_request_message(header_obj.source_peer_id, header_obj.target_peer_id,
-                                                            header_obj.timeout))
+                    ipc.create_connect_request_message(header_obj.source_peer_id, header_obj.target_peer_id,
+                                                       header_obj.timeout))
             elif header_obj.next_node == variables.MY_ADDRESS:
                 logging.debug(&#39;forward connect request header&#39;)
                 route = self.routing_table.get_best_route_for_destination(header_obj.end_node)
@@ -971,14 +955,17 @@ def timeout(time_in_sec):
                                   f&#39;for destination address {header_obj.end_node}&#39;)
 
     def process_disconnect_request_header(self, header_obj):
-        # TODO make sure same request is not forwarded multiple times
+        &#34;&#34;&#34;
+        processes disconnect request header
+        :param header_obj: object of class DisconnectRequestHeader
+        &#34;&#34;&#34;
         if header_obj.received_from != variables.MY_ADDRESS:
             if header_obj.end_node == variables.MY_ADDRESS:
                 self.connected_node = header_obj.source
                 # send connect request to java side
                 logging.debug(&#34;send disconnect request to java side&#34;)
                 self.sending_queue.put(
-                    java_ipc.create_disconnect_request_message(header_obj.source_peer_id, header_obj.target_peer_id))
+                    ipc.create_disconnect_request_message(header_obj.source_peer_id, header_obj.target_peer_id))
             elif header_obj.next_node == variables.MY_ADDRESS:
                 logging.debug(&#39;forward disconnect request header&#39;)
                 route = self.routing_table.get_best_route_for_destination(header_obj.end_node)
@@ -991,6 +978,12 @@ def timeout(time_in_sec):
                                   f&#39;for destination address {header_obj.end_node}&#39;)
 
     def send_connect_request_header(self, source_peer_id, target_peer_id, timeout_in_sec):
+        &#34;&#34;&#34;
+        sends connect request
+        :param source_peer_id: peer id of source peer
+        :param target_peer_id: peer id of target peer
+        :param timeout_in_sec: timeout in seconds
+        &#34;&#34;&#34;
         # look for address of source peer id and check whether source peer is already registered
         # wait until timeout for ConnectRequestHeader of other HubConnector
         self.check_peers(source_peer_id, target_peer_id)
@@ -1011,8 +1004,11 @@ def timeout(time_in_sec):
                                                   timeout_in_sec).get_header_str())
 
     def send_disconnect_request_header(self, source_peer_id, target_peer_id):
-        # look for address of source peer id and check whether source peer is already registered
-        # TODO wait until timeout for ConnectRequestHeader of other HubConnector
+        &#34;&#34;&#34;
+        sends disconnect request
+        :param source_peer_id: peer id of source peer
+        :param target_peer_id: peer id of target peer
+        &#34;&#34;&#34;
         self.check_peers(source_peer_id, target_peer_id)
         end_node = self.routing_table.get_address_of_peer(target_peer_id)
         route = self.routing_table.get_best_route_for_destination(end_node)
@@ -1027,15 +1023,24 @@ def timeout(time_in_sec):
                                                  route[&#39;next_node&#39;], source_peer_id, target_peer_id).get_header_str())
 
     def check_peers(self, source_peer_id, target_peer_id):
+        &#34;&#34;&#34;
+        helper function to check whether peers are already registered; raises ValueError if peer is not registered
+        :param source_peer_id: peer id of source peer
+        :param target_peer_id: peer id of target peer
+        &#34;&#34;&#34;
         if not self.routing_table.check_peer_is_already_registered(source_peer_id):
             raise ValueError(f&#34;source peer &#39;{source_peer_id}&#39; is not registered&#34;)
         elif not self.routing_table.check_peer_is_already_registered(target_peer_id):
             raise ValueError(f&#34;target peer &#39;{target_peer_id}&#39; is not registered&#34;)
         elif self.routing_table.get_address_of_peer(source_peer_id) != variables.MY_ADDRESS:
-            # TODO is source_peer always registered on own instance?
             raise ValueError(&#39;source peer is not registered on this node&#39;)
 
     def send_registration_message(self, subscribe, peer_id):
+        &#34;&#34;&#34;
+        function to registers/unregister a peer
+        :param subscribe: if True peer will be registered on network; else the peer will be unregistered
+        :param peer_id: id of peer
+        &#34;&#34;&#34;
         if subscribe:
             self.routing_table.add_peer(peer_id, variables.MY_ADDRESS)
         else:
@@ -1059,29 +1064,32 @@ def timeout(time_in_sec):
             if received_own_request:
                 return
 
-    def send_route_error(self, end_node):
-        route_error_header_obj = header.RouteErrorHeader(None, variables.MY_ADDRESS, 9, end_node)
-        self.send_header(route_error_header_obj.get_header_str())
-
-    def send_message_acknowledgement(self, source, destination, payload):
-        ack_header_obj = header.MessageAcknowledgeHeader(None, destination, 9, calculate_ack_id(source, payload))
-        self.send_header(ack_header_obj.get_header_str())
-
     def stop(self):
+        &#34;&#34;&#34;
+        function to shutdown background threads:
+
+        thread for reading from serial port
+        thread for writing to serial port
+        thread for processing received header messages
+        &#34;&#34;&#34;
         self.PROCESS_INCOMING_MESSAGES = False
-        consumer_producer.CONSUMER_THREAD_ACTIVE = False
-        consumer_producer.PRODUCER_THREAD_ACTIVE = False
+        serial_connection.WRITING_THREAD_ACTIVE = False
+        serial_connection.READING_THREAD_ACTIVE = False
 
     def add_message_to_waiting_acknowledgement_list(self, message_header_obj):
+        &#34;&#34;&#34;
+        adds the message id of a message to the list of pending acknowledgements
+        :param message_header_obj: message as object of class MessageHeader
+        &#34;&#34;&#34;
         message_id = message_header_obj.message_id
         logging.debug(f&#34;adding &#39;{message_id}&#39; to ack list&#34;)
         self.MESSAGES_ACKNOWLEDGMENT.append(message_id)
-        return
-
-    def edit_message_acknowledgment_list(self, message_ack_header_obj):
-        self.delete_from_ack_list(message_ack_header_obj.message_id)
 
     def delete_from_ack_list(self, ack_id):
+        &#34;&#34;&#34;
+        remove message id from list of pending acknowledgements
+        :param ack_id: message id which should be deleted
+        &#34;&#34;&#34;
         logging.debug(f&#39;remove {ack_id} from ack list&#39;)
         try:
             self.MESSAGES_ACKNOWLEDGMENT.remove(int(ack_id))
@@ -1090,70 +1098,85 @@ def timeout(time_in_sec):
 </details>
 <h3>Class variables</h3>
 <dl>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.MESSAGES_ACKNOWLEDGMENT"><code class="name">var <span class="ident">MESSAGES_ACKNOWLEDGMENT</span></code></dt>
+<dt id="lora_multihop.protocol.Protocol.MESSAGES_ACKNOWLEDGMENT"><code class="name">var <span class="ident">MESSAGES_ACKNOWLEDGMENT</span></code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.PAUSE_PROCESSING_INCOMING_MESSAGES"><code class="name">var <span class="ident">PAUSE_PROCESSING_INCOMING_MESSAGES</span></code></dt>
+<dt id="lora_multihop.protocol.Protocol.PAUSE_PROCESSING_INCOMING_MESSAGES"><code class="name">var <span class="ident">PAUSE_PROCESSING_INCOMING_MESSAGES</span></code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.PROCESS_INCOMING_MESSAGES"><code class="name">var <span class="ident">PROCESS_INCOMING_MESSAGES</span></code></dt>
+<dt id="lora_multihop.protocol.Protocol.PROCESS_INCOMING_MESSAGES"><code class="name">var <span class="ident">PROCESS_INCOMING_MESSAGES</span></code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.VERIFICATION_TIMEOUT"><code class="name">var <span class="ident">VERIFICATION_TIMEOUT</span></code></dt>
+<dt id="lora_multihop.protocol.Protocol.VERIFICATION_TIMEOUT"><code class="name">var <span class="ident">VERIFICATION_TIMEOUT</span></code></dt>
 <dd>
 <div class="desc"></div>
 </dd>
 </dl>
 <h3>Methods</h3>
 <dl>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.add_message_to_waiting_acknowledgement_list"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.add_message_to_waiting_acknowledgement_list"><code class="name flex">
 <span>def <span class="ident">add_message_to_waiting_acknowledgement_list</span></span>(<span>self, message_header_obj)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>adds the message id of a message to the list of pending acknowledgements
+:param message_header_obj: message as object of class MessageHeader</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def add_message_to_waiting_acknowledgement_list(self, message_header_obj):
+    &#34;&#34;&#34;
+    adds the message id of a message to the list of pending acknowledgements
+    :param message_header_obj: message as object of class MessageHeader
+    &#34;&#34;&#34;
     message_id = message_header_obj.message_id
     logging.debug(f&#34;adding &#39;{message_id}&#39; to ack list&#34;)
-    self.MESSAGES_ACKNOWLEDGMENT.append(message_id)
-    return</code></pre>
+    self.MESSAGES_ACKNOWLEDGMENT.append(message_id)</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.check_peers"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.check_peers"><code class="name flex">
 <span>def <span class="ident">check_peers</span></span>(<span>self, source_peer_id, target_peer_id)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>helper function to check whether peers are already registered; raises ValueError if peer is not registered
+:param source_peer_id: peer id of source peer
+:param target_peer_id: peer id of target peer</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def check_peers(self, source_peer_id, target_peer_id):
+    &#34;&#34;&#34;
+    helper function to check whether peers are already registered; raises ValueError if peer is not registered
+    :param source_peer_id: peer id of source peer
+    :param target_peer_id: peer id of target peer
+    &#34;&#34;&#34;
     if not self.routing_table.check_peer_is_already_registered(source_peer_id):
         raise ValueError(f&#34;source peer &#39;{source_peer_id}&#39; is not registered&#34;)
     elif not self.routing_table.check_peer_is_already_registered(target_peer_id):
         raise ValueError(f&#34;target peer &#39;{target_peer_id}&#39; is not registered&#34;)
     elif self.routing_table.get_address_of_peer(source_peer_id) != variables.MY_ADDRESS:
-        # TODO is source_peer always registered on own instance?
         raise ValueError(&#39;source peer is not registered on this node&#39;)</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.delete_from_ack_list"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.delete_from_ack_list"><code class="name flex">
 <span>def <span class="ident">delete_from_ack_list</span></span>(<span>self, ack_id)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>remove message id from list of pending acknowledgements
+:param ack_id: message id which should be deleted</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def delete_from_ack_list(self, ack_id):
+    &#34;&#34;&#34;
+    remove message id from list of pending acknowledgements
+    :param ack_id: message id which should be deleted
+    &#34;&#34;&#34;
     logging.debug(f&#39;remove {ack_id} from ack list&#39;)
     try:
         self.MESSAGES_ACKNOWLEDGMENT.remove(int(ack_id))
@@ -1161,20 +1184,7 @@ def timeout(time_in_sec):
         logging.debug(f&#39;ack is not in list. Current ack list: {self.MESSAGES_ACKNOWLEDGMENT}&#39;)</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.edit_message_acknowledgment_list"><code class="name flex">
-<span>def <span class="ident">edit_message_acknowledgment_list</span></span>(<span>self, message_ack_header_obj)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def edit_message_acknowledgment_list(self, message_ack_header_obj):
-    self.delete_from_ack_list(message_ack_header_obj.message_id)</code></pre>
-</details>
-</dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.process_ack_header"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.process_ack_header"><code class="name flex">
 <span>def <span class="ident">process_ack_header</span></span>(<span>self, header_obj)</span>
 </code></dt>
 <dd>
@@ -1192,7 +1202,7 @@ object will be added to the message_acknowledgement_list, else the message will 
     @param header_obj: message acknowledgement header object
     &#34;&#34;&#34;
     if header_obj.destination == variables.MY_ADDRESS:
-        self.edit_message_acknowledgment_list(header_obj)
+        self.delete_from_ack_list(header_obj.message_id)
     header_obj.ttl -= 1
     logging.debug(&#39;forward ack message&#39;)
     if header_obj.destination != variables.MY_ADDRESS:
@@ -1201,25 +1211,29 @@ object will be added to the message_acknowledgement_list, else the message will 
         logging.debug(f&#39;do not forward ack message, because end node was my address&#39;)</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.process_connect_request_header"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.process_connect_request_header"><code class="name flex">
 <span>def <span class="ident">process_connect_request_header</span></span>(<span>self, header_obj)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>processes connect request header
+:param header_obj: object of class ConnectRequestHeader</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def process_connect_request_header(self, header_obj):
-    # TODO make sure same request is not forwarded multiple times
+    &#34;&#34;&#34;
+    processes connect request header
+    :param header_obj: object of class ConnectRequestHeader
+    &#34;&#34;&#34;
     if header_obj.received_from != variables.MY_ADDRESS:
         if header_obj.end_node == variables.MY_ADDRESS:
             self.connected_node = header_obj.source
             # send connect request to java side
             logging.debug(&#34;send connect request to java side&#34;)
             self.sending_queue.put(
-                java_ipc.create_connect_request_message(header_obj.source_peer_id, header_obj.target_peer_id,
-                                                        header_obj.timeout))
+                ipc.create_connect_request_message(header_obj.source_peer_id, header_obj.target_peer_id,
+                                                   header_obj.timeout))
         elif header_obj.next_node == variables.MY_ADDRESS:
             logging.debug(&#39;forward connect request header&#39;)
             route = self.routing_table.get_best_route_for_destination(header_obj.end_node)
@@ -1232,24 +1246,28 @@ object will be added to the message_acknowledgement_list, else the message will 
                               f&#39;for destination address {header_obj.end_node}&#39;)</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.process_disconnect_request_header"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.process_disconnect_request_header"><code class="name flex">
 <span>def <span class="ident">process_disconnect_request_header</span></span>(<span>self, header_obj)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>processes disconnect request header
+:param header_obj: object of class DisconnectRequestHeader</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def process_disconnect_request_header(self, header_obj):
-    # TODO make sure same request is not forwarded multiple times
+    &#34;&#34;&#34;
+    processes disconnect request header
+    :param header_obj: object of class DisconnectRequestHeader
+    &#34;&#34;&#34;
     if header_obj.received_from != variables.MY_ADDRESS:
         if header_obj.end_node == variables.MY_ADDRESS:
             self.connected_node = header_obj.source
             # send connect request to java side
             logging.debug(&#34;send disconnect request to java side&#34;)
             self.sending_queue.put(
-                java_ipc.create_disconnect_request_message(header_obj.source_peer_id, header_obj.target_peer_id))
+                ipc.create_disconnect_request_message(header_obj.source_peer_id, header_obj.target_peer_id))
         elif header_obj.next_node == variables.MY_ADDRESS:
             logging.debug(&#39;forward disconnect request header&#39;)
             route = self.routing_table.get_best_route_for_destination(header_obj.end_node)
@@ -1262,7 +1280,7 @@ object will be added to the message_acknowledgement_list, else the message will 
                               f&#39;for destination address {header_obj.end_node}&#39;)</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.process_incoming_message"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.process_incoming_message"><code class="name flex">
 <span>def <span class="ident">process_incoming_message</span></span>(<span>self)</span>
 </code></dt>
 <dd>
@@ -1276,9 +1294,9 @@ object will be added to the message_acknowledgement_list, else the message will 
     get messages from LoRa module, create header object and call appropriate method to process the received message
     &#34;&#34;&#34;
     while self.PROCESS_INCOMING_MESSAGES:
-        if not consumer_producer.response_q.empty() and not self.PAUSE_PROCESSING_INCOMING_MESSAGES:
-            raw_message = consumer_producer.response_q.get()
-            print(f&#39;process: {raw_message}&#39;)
+        if not serial_connection.response_q.empty() and not self.PAUSE_PROCESSING_INCOMING_MESSAGES:
+            raw_message = serial_connection.response_q.get()
+            logging.debug(f&#39;process: {raw_message}&#39;)
             try:
                 header_obj = header.create_header_obj_from_raw_message(raw_message)
                 if header_obj.ttl &gt; 1:
@@ -1301,15 +1319,16 @@ object will be added to the message_acknowledgement_list, else the message will 
                         self.process_disconnect_request_header(header_obj)
             except ValueError as e:
                 logging.warning(str(e))
+                traceback.print_exc()
                 try:
                     logging.debug(&#39;try to add received signal to unsupported devices list...&#39;)
-                    addr = header.get_received_from_value(consumer_producer.bytes_to_str(raw_message))
+                    addr = header.get_received_from_value(raw_message)
                     self.routing_table.add_neighbor_with_unsupported_protocol(addr)
                 except ValueError as e:
                     logging.warning(str(e))</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.process_message_header"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.process_message_header"><code class="name flex">
 <span>def <span class="ident">process_message_header</span></span>(<span>self, header_obj)</span>
 </code></dt>
 <dd>
@@ -1334,7 +1353,8 @@ forwarded to the next_node
         if self.routing_table.check_message_already_received(header_obj.source, header_obj.message_id):
             self.send_header(ack_header_str)
         else:
-            self.received_messages_queue.put(header_obj.payload)
+            logging.debug(f&#39;payload: {str(header_obj.payload)}&#39;)
+            self.received_messages_queue.put(base64.b64decode(header_obj.payload))
             # send acknowledge message
             logging.debug(&#39;sending acknowledgement&#39;)
             self.send_header(ack_header_str)
@@ -1342,34 +1362,34 @@ forwarded to the next_node
     elif header_obj.next_node == variables.MY_ADDRESS and header_obj.destination != variables.MY_ADDRESS:
         best_route = self.routing_table.get_best_route_for_destination(header_obj.destination)
         if len(best_route) == 0:
-            logging.info(
-                &#39;no routing table entry for {} to forward message found&#39;.format(header_obj.next_node))
+            logging.info(&#39;no routing table entry for {} to forward message found&#39;.format(header_obj.next_node))
         else:
             header_obj.next_node = best_route[&#39;next_node&#39;]
             logging.info(&#39;forwarding message from {source} to {destination} over hop {next_node}&#39;.format(
                 source=header_obj.source, destination=header_obj.destination, next_node=header_obj.next_node))
             header_obj.ttl = header_obj.ttl - 1
-            self.send_header_as_bytes(header_obj.get_header_in_bytes())
+            self.send_header(header_obj.get_header_str())
     else:
         logging.debug(&#39;ignoring message: {}&#39;.format(str(header_obj)))</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.process_registration_header"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.process_registration_header"><code class="name flex">
 <span>def <span class="ident">process_registration_header</span></span>(<span>self, header_obj)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>processes registration message header
+:param header_obj: object of class RegistrationMessageHeader</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def process_registration_header(self, header_obj):
+    &#34;&#34;&#34;
+    processes registration message header
+    :param header_obj: object of class RegistrationMessageHeader
+    &#34;&#34;&#34;
     if header_obj.source != variables.MY_ADDRESS:
         header_obj.ttl -= 1
-        # TODO check whether this code could be used
-        # if self.routing_table.check_registration_message_already_processed(header_obj.source):
-        #     logging.debug(&#39;registration message already has been processed&#39;)
-        # else:
         self.routing_table.add_address_to_processed_registration_messages_list(header_obj.source)
         if header_obj.subscribe:
             logging.debug(&#39;registered new peer&#39;)
@@ -1383,7 +1403,7 @@ forwarded to the next_node
         self.received_own_registration_message = True</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.process_route_error_header"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.process_route_error_header"><code class="name flex">
 <span>def <span class="ident">process_route_error_header</span></span>(<span>self, header_obj)</span>
 </code></dt>
 <dd>
@@ -1408,7 +1428,7 @@ forwarded to the next_node
     self.send_header(header_obj.get_header_str())</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.process_route_reply_header"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.process_route_reply_header"><code class="name flex">
 <span>def <span class="ident">process_route_reply_header</span></span>(<span>self, header_obj)</span>
 </code></dt>
 <dd>
@@ -1444,17 +1464,10 @@ the message will be forwarded to the address mentioned in the next_node field
                 &#39;next_node&#39;]
             header_obj.hops = header_obj.hops + 1
             header_obj.ttl = header_obj.ttl - 1
-            self.send_header(header_obj.get_header_str())
-        else:
-            # send route error, because there is no route to forward route reply message to
-            # source node of route request
-            logging.info(
-                &#39;can not forward route reply message, because there is no route to forward route reply message to&#39;)
-            # source node of route request&#39;)
-            # self.send_route_error(header_obj.source)</code></pre>
+            self.send_header(header_obj.get_header_str())</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.process_route_request"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.process_route_request"><code class="name flex">
 <span>def <span class="ident">process_route_request</span></span>(<span>self, header_obj)</span>
 </code></dt>
 <dd>
@@ -1494,16 +1507,25 @@ the message will be forwarded to the address mentioned in the next_node field
                 logging.debug(&#39;route request was already processed&#39;)</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.send_connect_request_header"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.send_connect_request_header"><code class="name flex">
 <span>def <span class="ident">send_connect_request_header</span></span>(<span>self, source_peer_id, target_peer_id, timeout_in_sec)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>sends connect request
+:param source_peer_id: peer id of source peer
+:param target_peer_id: peer id of target peer
+:param timeout_in_sec: timeout in seconds</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def send_connect_request_header(self, source_peer_id, target_peer_id, timeout_in_sec):
+    &#34;&#34;&#34;
+    sends connect request
+    :param source_peer_id: peer id of source peer
+    :param target_peer_id: peer id of target peer
+    :param timeout_in_sec: timeout in seconds
+    &#34;&#34;&#34;
     # look for address of source peer id and check whether source peer is already registered
     # wait until timeout for ConnectRequestHeader of other HubConnector
     self.check_peers(source_peer_id, target_peer_id)
@@ -1524,18 +1546,23 @@ the message will be forwarded to the address mentioned in the next_node field
                                               timeout_in_sec).get_header_str())</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.send_disconnect_request_header"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.send_disconnect_request_header"><code class="name flex">
 <span>def <span class="ident">send_disconnect_request_header</span></span>(<span>self, source_peer_id, target_peer_id)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>sends disconnect request
+:param source_peer_id: peer id of source peer
+:param target_peer_id: peer id of target peer</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def send_disconnect_request_header(self, source_peer_id, target_peer_id):
-    # look for address of source peer id and check whether source peer is already registered
-    # TODO wait until timeout for ConnectRequestHeader of other HubConnector
+    &#34;&#34;&#34;
+    sends disconnect request
+    :param source_peer_id: peer id of source peer
+    :param target_peer_id: peer id of target peer
+    &#34;&#34;&#34;
     self.check_peers(source_peer_id, target_peer_id)
     end_node = self.routing_table.get_address_of_peer(target_peer_id)
     route = self.routing_table.get_best_route_for_destination(end_node)
@@ -1550,7 +1577,7 @@ the message will be forwarded to the address mentioned in the next_node field
                                              route[&#39;next_node&#39;], source_peer_id, target_peer_id).get_header_str())</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.send_header"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.send_header"><code class="name flex">
 <span>def <span class="ident">send_header</span></span>(<span>self, header_str)</span>
 </code></dt>
 <dd>
@@ -1565,36 +1592,17 @@ the message will be forwarded to the address mentioned in the next_node field
     sends a string to LoRa network
     @param header_str: message to send
     &#34;&#34;&#34;
-    self.send_header_as_bytes(consumer_producer.str_to_bytes(header_str))</code></pre>
-</details>
-</dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.send_header_as_bytes"><code class="name flex">
-<span>def <span class="ident">send_header_as_bytes</span></span>(<span>self, header_in_bytes)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>send bytes message to LoRa network
-:param header_in_bytes: payload</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def send_header_as_bytes(self, header_in_bytes):
-    &#34;&#34;&#34;
-    send bytes message to LoRa network
-    :param header_in_bytes: payload
-    &#34;&#34;&#34;
     wait_random_time()
-    length = str(len(header_in_bytes))
-    consumer_producer.q.put((b&#39;AT+SEND=&#39; + consumer_producer.str_to_bytes(length), [&#39;AT,OK&#39;]))
-    if consumer_producer.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
-        consumer_producer.q.put((header_in_bytes, [&#39;AT,SENDING&#39;, &#39;AT,SENDED&#39;]))
-        if consumer_producer.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
-            logging.debug(f&#34;sent header &#39;{header_in_bytes}&#39;.&#34;)
+    serial_connection.writing_q.put((&#39;AT+SEND={}&#39;.format(str(len(header_str))), [&#39;AT,OK&#39;]))
+    if serial_connection.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
+        serial_connection.writing_q.put((header_str, [&#39;AT,SENDING&#39;, &#39;AT,SENDED&#39;]))
+        if serial_connection.status_q.get(timeout=self.VERIFICATION_TIMEOUT):
+            logging.debug(&#34;sent header &#39;{}&#39;.&#34;.format(header_str))
             return
-    logging.debug(f&#34;could not send header &#39;{header_in_bytes}&#39;, because got invalid status from lora module&#34;)</code></pre>
+    logging.debug(&#34;could not send header &#39;{}&#39;, because got invalid status from lora module&#34;.format(header_str))</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.send_message"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.send_message"><code class="name flex">
 <span>def <span class="ident">send_message</span></span>(<span>self, payload)</span>
 </code></dt>
 <dd>
@@ -1613,8 +1621,7 @@ the message will be forwarded to the address mentioned in the next_node field
         destination = self.connected_node
         best_route = self.routing_table.get_best_route_for_destination(destination)
         if len(best_route) == 0:
-            logging.info(
-                &#39;could not find a route to {}. Sending route request...&#39;.format(destination))
+            logging.info(&#39;could not find a route to {}. Sending route request...&#39;.format(destination))
             if self.send_route_request_message(destination):
                 best_route = self.routing_table.get_best_route_for_destination(destination)
             else:
@@ -1622,13 +1629,14 @@ the message will be forwarded to the address mentioned in the next_node field
                 return
         self.message_counter += 1
         header_obj = header.MessageHeader(None, variables.MY_ADDRESS, variables.DEFAULT_TTL, destination,
-                                          best_route[&#39;next_node&#39;], self.message_counter, payload)
+                                          best_route[&#39;next_node&#39;], self.message_counter,
+                                          base64.b64encode(payload).decode(variables.ENCODING))
         attempt = 0
         self.add_message_to_waiting_acknowledgement_list(header_obj)
         message_confirmed = False
         while attempt &lt; 3 and not message_confirmed:
             logging.debug(f&#39;attempt: {attempt}&#39;)
-            self.send_header_as_bytes(header_obj.get_header_in_bytes())
+            self.send_header(header_obj.get_header_str())
             attempt_count_received_ack = 0
             while attempt_count_received_ack &lt; 10:
                 if header_obj.message_id not in self.MESSAGES_ACKNOWLEDGMENT:
@@ -1653,30 +1661,23 @@ the message will be forwarded to the address mentioned in the next_node field
                                                      header_obj.destination).get_header_str())</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.send_message_acknowledgement"><code class="name flex">
-<span>def <span class="ident">send_message_acknowledgement</span></span>(<span>self, source, destination, payload)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def send_message_acknowledgement(self, source, destination, payload):
-    ack_header_obj = header.MessageAcknowledgeHeader(None, destination, 9, calculate_ack_id(source, payload))
-    self.send_header(ack_header_obj.get_header_str())</code></pre>
-</details>
-</dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.send_registration_message"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.send_registration_message"><code class="name flex">
 <span>def <span class="ident">send_registration_message</span></span>(<span>self, subscribe, peer_id)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>function to registers/unregister a peer
+:param subscribe: if True peer will be registered on network; else the peer will be unregistered
+:param peer_id: id of peer</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def send_registration_message(self, subscribe, peer_id):
+    &#34;&#34;&#34;
+    function to registers/unregister a peer
+    :param subscribe: if True peer will be registered on network; else the peer will be unregistered
+    :param peer_id: id of peer
+    &#34;&#34;&#34;
     if subscribe:
         self.routing_table.add_peer(peer_id, variables.MY_ADDRESS)
     else:
@@ -1701,21 +1702,7 @@ the message will be forwarded to the address mentioned in the next_node field
             return</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.send_route_error"><code class="name flex">
-<span>def <span class="ident">send_route_error</span></span>(<span>self, end_node)</span>
-</code></dt>
-<dd>
-<div class="desc"></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def send_route_error(self, end_node):
-    route_error_header_obj = header.RouteErrorHeader(None, variables.MY_ADDRESS, 9, end_node)
-    self.send_header(route_error_header_obj.get_header_str())</code></pre>
-</details>
-</dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.send_route_reply"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.send_route_reply"><code class="name flex">
 <span>def <span class="ident">send_route_reply</span></span>(<span>self, next_node, end_node)</span>
 </code></dt>
 <dd>
@@ -1737,7 +1724,7 @@ the message will be forwarded to the address mentioned in the next_node field
     self.send_header(route_reply_header_obj.get_header_str())</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.send_route_request_message"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.send_route_request_message"><code class="name flex">
 <span>def <span class="ident">send_route_request_message</span></span>(<span>self, end_node)</span>
 </code></dt>
 <dd>
@@ -1778,7 +1765,7 @@ the message will be forwarded to the address mentioned in the next_node field
     return message_confirmed</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.start_protocol_thread"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.start_protocol_thread"><code class="name flex">
 <span>def <span class="ident">start_protocol_thread</span></span>(<span>self)</span>
 </code></dt>
 <dd>
@@ -1795,19 +1782,29 @@ the message will be forwarded to the address mentioned in the next_node field
     receiving_thread.start()</code></pre>
 </details>
 </dd>
-<dt id="lora_multihop.protocol_lite.ProtocolLite.stop"><code class="name flex">
+<dt id="lora_multihop.protocol.Protocol.stop"><code class="name flex">
 <span>def <span class="ident">stop</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"></div>
+<div class="desc"><p>function to shutdown background threads:</p>
+<p>thread for reading from serial port
+thread for writing to serial port
+thread for processing received header messages</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def stop(self):
+    &#34;&#34;&#34;
+    function to shutdown background threads:
+
+    thread for reading from serial port
+    thread for writing to serial port
+    thread for processing received header messages
+    &#34;&#34;&#34;
     self.PROCESS_INCOMING_MESSAGES = False
-    consumer_producer.CONSUMER_THREAD_ACTIVE = False
-    consumer_producer.PRODUCER_THREAD_ACTIVE = False</code></pre>
+    serial_connection.WRITING_THREAD_ACTIVE = False
+    serial_connection.READING_THREAD_ACTIVE = False</code></pre>
 </details>
 </dd>
 </dl>
@@ -1828,49 +1825,41 @@ the message will be forwarded to the address mentioned in the next_node field
 </li>
 <li><h3><a href="#header-functions">Functions</a></h3>
 <ul class="">
-<li><code><a title="lora_multihop.protocol_lite.calculate_ack_id" href="#lora_multihop.protocol_lite.calculate_ack_id">calculate_ack_id</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.raise_timeout" href="#lora_multihop.protocol_lite.raise_timeout">raise_timeout</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.timeout" href="#lora_multihop.protocol_lite.timeout">timeout</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.wait_random_time" href="#lora_multihop.protocol_lite.wait_random_time">wait_random_time</a></code></li>
+<li><code><a title="lora_multihop.protocol.raise_timeout" href="#lora_multihop.protocol.raise_timeout">raise_timeout</a></code></li>
+<li><code><a title="lora_multihop.protocol.timeout" href="#lora_multihop.protocol.timeout">timeout</a></code></li>
+<li><code><a title="lora_multihop.protocol.wait_random_time" href="#lora_multihop.protocol.wait_random_time">wait_random_time</a></code></li>
 </ul>
 </li>
 <li><h3><a href="#header-classes">Classes</a></h3>
 <ul>
 <li>
-<h4><code><a title="lora_multihop.protocol_lite.ConnectRequest" href="#lora_multihop.protocol_lite.ConnectRequest">ConnectRequest</a></code></h4>
-</li>
-<li>
-<h4><code><a title="lora_multihop.protocol_lite.ProtocolLite" href="#lora_multihop.protocol_lite.ProtocolLite">ProtocolLite</a></code></h4>
+<h4><code><a title="lora_multihop.protocol.Protocol" href="#lora_multihop.protocol.Protocol">Protocol</a></code></h4>
 <ul class="">
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.MESSAGES_ACKNOWLEDGMENT" href="#lora_multihop.protocol_lite.ProtocolLite.MESSAGES_ACKNOWLEDGMENT">MESSAGES_ACKNOWLEDGMENT</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.PAUSE_PROCESSING_INCOMING_MESSAGES" href="#lora_multihop.protocol_lite.ProtocolLite.PAUSE_PROCESSING_INCOMING_MESSAGES">PAUSE_PROCESSING_INCOMING_MESSAGES</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.PROCESS_INCOMING_MESSAGES" href="#lora_multihop.protocol_lite.ProtocolLite.PROCESS_INCOMING_MESSAGES">PROCESS_INCOMING_MESSAGES</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.VERIFICATION_TIMEOUT" href="#lora_multihop.protocol_lite.ProtocolLite.VERIFICATION_TIMEOUT">VERIFICATION_TIMEOUT</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.add_message_to_waiting_acknowledgement_list" href="#lora_multihop.protocol_lite.ProtocolLite.add_message_to_waiting_acknowledgement_list">add_message_to_waiting_acknowledgement_list</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.check_peers" href="#lora_multihop.protocol_lite.ProtocolLite.check_peers">check_peers</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.delete_from_ack_list" href="#lora_multihop.protocol_lite.ProtocolLite.delete_from_ack_list">delete_from_ack_list</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.edit_message_acknowledgment_list" href="#lora_multihop.protocol_lite.ProtocolLite.edit_message_acknowledgment_list">edit_message_acknowledgment_list</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.process_ack_header" href="#lora_multihop.protocol_lite.ProtocolLite.process_ack_header">process_ack_header</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.process_connect_request_header" href="#lora_multihop.protocol_lite.ProtocolLite.process_connect_request_header">process_connect_request_header</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.process_disconnect_request_header" href="#lora_multihop.protocol_lite.ProtocolLite.process_disconnect_request_header">process_disconnect_request_header</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.process_incoming_message" href="#lora_multihop.protocol_lite.ProtocolLite.process_incoming_message">process_incoming_message</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.process_message_header" href="#lora_multihop.protocol_lite.ProtocolLite.process_message_header">process_message_header</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.process_registration_header" href="#lora_multihop.protocol_lite.ProtocolLite.process_registration_header">process_registration_header</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.process_route_error_header" href="#lora_multihop.protocol_lite.ProtocolLite.process_route_error_header">process_route_error_header</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.process_route_reply_header" href="#lora_multihop.protocol_lite.ProtocolLite.process_route_reply_header">process_route_reply_header</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.process_route_request" href="#lora_multihop.protocol_lite.ProtocolLite.process_route_request">process_route_request</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.send_connect_request_header" href="#lora_multihop.protocol_lite.ProtocolLite.send_connect_request_header">send_connect_request_header</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.send_disconnect_request_header" href="#lora_multihop.protocol_lite.ProtocolLite.send_disconnect_request_header">send_disconnect_request_header</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.send_header" href="#lora_multihop.protocol_lite.ProtocolLite.send_header">send_header</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.send_header_as_bytes" href="#lora_multihop.protocol_lite.ProtocolLite.send_header_as_bytes">send_header_as_bytes</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.send_message" href="#lora_multihop.protocol_lite.ProtocolLite.send_message">send_message</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.send_message_acknowledgement" href="#lora_multihop.protocol_lite.ProtocolLite.send_message_acknowledgement">send_message_acknowledgement</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.send_registration_message" href="#lora_multihop.protocol_lite.ProtocolLite.send_registration_message">send_registration_message</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.send_route_error" href="#lora_multihop.protocol_lite.ProtocolLite.send_route_error">send_route_error</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.send_route_reply" href="#lora_multihop.protocol_lite.ProtocolLite.send_route_reply">send_route_reply</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.send_route_request_message" href="#lora_multihop.protocol_lite.ProtocolLite.send_route_request_message">send_route_request_message</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.start_protocol_thread" href="#lora_multihop.protocol_lite.ProtocolLite.start_protocol_thread">start_protocol_thread</a></code></li>
-<li><code><a title="lora_multihop.protocol_lite.ProtocolLite.stop" href="#lora_multihop.protocol_lite.ProtocolLite.stop">stop</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.MESSAGES_ACKNOWLEDGMENT" href="#lora_multihop.protocol.Protocol.MESSAGES_ACKNOWLEDGMENT">MESSAGES_ACKNOWLEDGMENT</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.PAUSE_PROCESSING_INCOMING_MESSAGES" href="#lora_multihop.protocol.Protocol.PAUSE_PROCESSING_INCOMING_MESSAGES">PAUSE_PROCESSING_INCOMING_MESSAGES</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.PROCESS_INCOMING_MESSAGES" href="#lora_multihop.protocol.Protocol.PROCESS_INCOMING_MESSAGES">PROCESS_INCOMING_MESSAGES</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.VERIFICATION_TIMEOUT" href="#lora_multihop.protocol.Protocol.VERIFICATION_TIMEOUT">VERIFICATION_TIMEOUT</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.add_message_to_waiting_acknowledgement_list" href="#lora_multihop.protocol.Protocol.add_message_to_waiting_acknowledgement_list">add_message_to_waiting_acknowledgement_list</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.check_peers" href="#lora_multihop.protocol.Protocol.check_peers">check_peers</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.delete_from_ack_list" href="#lora_multihop.protocol.Protocol.delete_from_ack_list">delete_from_ack_list</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.process_ack_header" href="#lora_multihop.protocol.Protocol.process_ack_header">process_ack_header</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.process_connect_request_header" href="#lora_multihop.protocol.Protocol.process_connect_request_header">process_connect_request_header</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.process_disconnect_request_header" href="#lora_multihop.protocol.Protocol.process_disconnect_request_header">process_disconnect_request_header</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.process_incoming_message" href="#lora_multihop.protocol.Protocol.process_incoming_message">process_incoming_message</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.process_message_header" href="#lora_multihop.protocol.Protocol.process_message_header">process_message_header</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.process_registration_header" href="#lora_multihop.protocol.Protocol.process_registration_header">process_registration_header</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.process_route_error_header" href="#lora_multihop.protocol.Protocol.process_route_error_header">process_route_error_header</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.process_route_reply_header" href="#lora_multihop.protocol.Protocol.process_route_reply_header">process_route_reply_header</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.process_route_request" href="#lora_multihop.protocol.Protocol.process_route_request">process_route_request</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.send_connect_request_header" href="#lora_multihop.protocol.Protocol.send_connect_request_header">send_connect_request_header</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.send_disconnect_request_header" href="#lora_multihop.protocol.Protocol.send_disconnect_request_header">send_disconnect_request_header</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.send_header" href="#lora_multihop.protocol.Protocol.send_header">send_header</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.send_message" href="#lora_multihop.protocol.Protocol.send_message">send_message</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.send_registration_message" href="#lora_multihop.protocol.Protocol.send_registration_message">send_registration_message</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.send_route_reply" href="#lora_multihop.protocol.Protocol.send_route_reply">send_route_reply</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.send_route_request_message" href="#lora_multihop.protocol.Protocol.send_route_request_message">send_route_request_message</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.start_protocol_thread" href="#lora_multihop.protocol.Protocol.start_protocol_thread">start_protocol_thread</a></code></li>
+<li><code><a title="lora_multihop.protocol.Protocol.stop" href="#lora_multihop.protocol.Protocol.stop">stop</a></code></li>
 </ul>
 </li>
 </ul>
