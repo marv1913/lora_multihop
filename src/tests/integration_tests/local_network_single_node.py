@@ -6,7 +6,7 @@ from queue import Queue
 from lora_multihop import serial_connection
 
 
-class LocalConsumerProducer:
+class LocalNetwork:
 
     def __init__(self, port, module_address, host=None):
         self.host = host

@@ -2,7 +2,7 @@ import logging
 import os
 
 from lora_multihop.ipc import IPC
-from tests.integration_tests.local_consumer_producer import LocalConsumerProducer
+from tests.integration_tests.local_network import LocalNetwork
 from lora_multihop import variables
 
 if __name__ == '__main__':
@@ -12,8 +12,8 @@ if __name__ == '__main__':
     module_address = os.getenv('MODULE_ADDRESS')
     host = os.getenv('HOST')
 
-    read_write = LocalConsumerProducer(host=host, port=int(os.getenv('MODULE_COMMUNICATION_PORT')),
-                                       module_address=module_address)
+    read_write = LocalNetwork(host=host, port=int(os.getenv('MODULE_COMMUNICATION_PORT')),
+                              module_address=module_address)
     is_server = False
     if os.getenv('IS_SERVER').lower() == 'true':
         is_server = True
